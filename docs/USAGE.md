@@ -33,6 +33,12 @@ Claude ──MCP (stdio)──▶ mc-mcp-bridge ──WebSocket + token──▶
   and room can be walked to, entrances and stairs work, walls and roof are closed, nothing
   floats, doors and stairs face the right way, no existing building is overwritten, and it stays
   in the allowed area. Problems name the component to fix.
+- **Look and revise** (`inspect_building`, `revise_building`, `get_building`): the AI photographs
+  the preview (or the finished house) from automatically chosen viewpoints (front, back, sides, above,
+  inside each floor), gets measurements (facade symmetry, window ratio and alignment, roof overhang
+  and symmetry, your stated requirements), and fixes just the parts that are wrong: only the changed
+  blocks are updated. Changing a finished building needs your confirmation, and after 3 rounds the AI
+  stops and asks you.
 
 ### Build ("god mode")
 - **Place blocks / fill boxes** (solid, hollow, outline) / **clear** regions, with exact block states
@@ -184,7 +190,7 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 
 ---
 
-## Tool reference (36 tools)
+## Tool reference (39 tools)
 
 **Basics**: `ping`, `get_world_info` (versions, players, time, tick time, whether paused, WorldEdit).
 
@@ -205,6 +211,9 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 |---|---|
 | `analyze_build_site` | Terrain summary, character map, ranked building sites with `origin`/`facing` |
 | `validate_building` | Compile and check a building plan; per-component errors and reachability |
+| `inspect_building` | Pictures from planned viewpoints + validation, design metrics, requirements, world verification |
+| `revise_building` | Change components of a registered building; only differing blocks change (confirm for built ones) |
+| `get_building` | Plan and status of a registered building, or the list of them |
 
 **Building**
 
@@ -262,7 +271,10 @@ Full details of every request and response: [`protocol/spec.md`](../protocol/spe
    to the front, y up from the ground floor. The mod handles the rotation.
 3. `validate_building {"building": ...}` until `ok` is true. Errors look like
    `{"code": "UNREACHABLE_ROOM", "components": ["study"], ...}`, and the fix goes into that component.
-4. `preview {"building": ...}`, `orbit_shots`, then `confirm_preview` (one undoable change).
+4. `preview {"building": ...}`, then `inspect_building {"name": ...}` to see it from every side and
+   inside, `revise_building {"name": ..., "ops": [...]}` for anything wrong (up to 3 rounds), then
+   `confirm_preview` (one undoable change). Add `"requirements": {"symmetricFront": true,
+   "roofSymmetric": true, "minWindowsPerFloor": 2}` to the plan to have them checked every time.
 
 ## Build scripts in short
 

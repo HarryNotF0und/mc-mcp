@@ -385,3 +385,27 @@
 - `build.preview`：总是允许，结果中带 `validation`。
 - `build.placeBlueprint`：校验有错误时返回 `1007`（`data` 为校验结果），除非 `ignoreValidation: true`；`dryRun` 返回统计和校验结果。
 - 放置的方块包括地基、平台、清除的地形（空气），作为一个 ChangeSet 可撤销。
+
+## 迭代修改（v2 阶段 2）
+
+以 `building` 预览或放置的方案按 `name` 登记（`<游戏目录>/mcmcp/buildings/<name>.json` 持久化）。同名的新预览替换旧预览。
+
+### `arch.get`
+
+- params：`{"name"?}`；无 `name` 时返回 `{"buildings": [状态]}`。
+- result：`{"status": {"name", "state": "planned"|"previewing"|"built", "previewId"?, "revision", "roundsSinceApproval", "blocks"}, "building": 方案}`
+
+### `arch.inspect`（异步）
+
+- params：`{"name", "views"?: ["front","back","left","right","elevated","interior"], "images"?: true, "width"?: 640, "height"?: 400, "fov"?: 70, "daylight"?: true}`
+- result：`{"status", "validation", "design": {"facades", "windows", "roof", "proportions", "issues": [{"code", "message"}], "requirements": [{"name", "pass", "value"?}]}, "verification"?: {"blocks", "matching", "mismatchesByComponent", "samples"}, "views"|"shots": [{"view", "label", "pos", "yaw", "pitch", "shows", "png"?}], "width"?, "height"?, "note"?}`
+- `verification` 仅对已建成建筑；忽略 open/powered/occupied/lit，以及玻璃板、栅栏等按邻居连接的形状属性。
+- 无客户端（专用服务器）时没有图片，带 `note`。
+
+### `arch.revise`
+
+- params：`{"name", "ops"?: [操作], "building"?: 完整方案, "confirm"?: false, "userApproved"?: false, "ignoreValidation"?: false}`
+- 操作：`update {id, set}`、`remove {id}`、`add {to, value}`、`set {field, value, merge?}`（见 `PlanOps`）。
+- 应用：有活动预览 → 只更新预览中变化的方块（`applied: "preview"`）；已建成 → 需要 `confirm: true`，否则 `applied: "nothing"` 并说明会改多少方块；确认后差异作为一个可撤销任务放置（`applied: "world"`, `job`）；否则只改方案（`"plan"`）。
+- 每次修改 `revision` 和 `roundsSinceApproval` 加 1；达到 `config.maxRevisionRounds`（默认 3）后返回 `-32602 revision limit reached`，直到用户同意（`userApproved: true` 归零）。
+- result：`{"building", "diff": {"changed", "removed", "unchanged", "components": [...]}, "validation", "applied", "job"?, "revision", "roundsLeft"}`

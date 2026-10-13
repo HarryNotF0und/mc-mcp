@@ -7,7 +7,10 @@ import net.minecraft.server.MinecraftServer;
 
 import java.util.concurrent.CompletionException;
 
-/** Calls agent.* handlers like the bridge would. On the server thread the dispatch runs synchronously. */
+/**
+ * Calls API methods through a real dispatcher, like the bridge would. On the server thread
+ * main-thread and server.submit-based handlers run synchronously, so the result is immediate.
+ */
 public final class AgentApiAccess {
 	private static RpcDispatcher dispatcher;
 	private static MinecraftServer server;
@@ -20,6 +23,10 @@ public final class AgentApiAccess {
 			server = McMcpMod.server();
 			dispatcher = new RpcDispatcher(server);
 			AgentApi.register(dispatcher);
+			ArchApi.register(dispatcher);
+			PreviewApi.register(dispatcher);
+			BlueprintApi.register(dispatcher);
+			JobApi.register(dispatcher);
 		}
 		try {
 			return dispatcher.dispatch(method, params).join().getAsJsonObject();

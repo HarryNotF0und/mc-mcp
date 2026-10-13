@@ -26,6 +26,8 @@ public final class McMcpConfig {
 	public List<String> blockBlacklist = List.of("minecraft:command_block", "minecraft:tnt");
 	public int scriptTimeoutMs = 5000;
 	public int historySize = 50;
+	/** Revisions of one building the AI may make before the user has to approve continuing. */
+	public int maxRevisionRounds = 3;
 
 	public record Region(String dimension, int[] min, int[] max) {
 	}

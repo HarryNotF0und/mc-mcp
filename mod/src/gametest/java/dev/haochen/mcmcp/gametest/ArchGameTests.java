@@ -85,6 +85,9 @@ public class ArchGameTests implements FabricGameTest {
 			}
 		}
 		BlockPos center = helper.absolutePos(site);
+		// The API loads chunks when asked (loadChunks); do the same here, the site is far from the test grid.
+		dev.haochen.mcmcp.world.Guard.checkChunks(helper.getLevel(),
+				dev.haochen.mcmcp.world.Region.of(center.offset(-12, 0, -12), center.offset(12, 0, 12)), true);
 		JsonObject out = SiteAnalyzer.analyze(helper.getLevel(), McMcpMod.services().guard(),
 				new SiteAnalyzer.Request(center, 12, 7, 5, 2, Direction.SOUTH, 3));
 		JsonArray candidates = out.getAsJsonArray("candidates");

@@ -304,7 +304,7 @@ public final class SiteAnalyzer {
 		int cx = dx0 + wx / 2 - size / 2, cz = dz0 + wz / 2 - size / 2;
 		double dist = Math.sqrt(cx * cx + cz * cz);
 		double score = cut + 0.6 * fill + 40 * water + 1000 * lava + 100 * built + 2 * tree + 0.3 * dist + 2 * bestAccess
-				+ (r.preferFacing != null && best != r.preferFacing ? 5 : 0);
+				+ (r.preferFacing != null && best != r.preferFacing ? 15 : 0);
 		JsonObject s = new JsonObject();
 		s.addProperty("floorY", floorY);
 		s.addProperty("groundMin", sorted[0]);

@@ -92,7 +92,9 @@ get_layer_slices for exact blocks of small areas. Coordinates are [x, y, z], y u
 region corners are inclusive.\n\
 2. Plan the structure and its exact coordinates. For buildings: analyze_build_site for origin/facing, write a \
 building plan (read mc://docs/building-plan, start from mc://examples/two-story-house), validate_building until it \
-has no errors, then preview it. For other structures pick the ground level from the heightmap.\n\
+has no errors, then preview it and call inspect_building: look at every picture and the metrics, compare them \
+with what the user asked for, and fix problems with revise_building (only changed blocks are updated). After 3 \
+rounds show the user and ask; never change a built building without asking (confirm: true). For other structures pick the ground level from the heightmap.\n\
 3. Prefer one run_script call for anything with repetition or curves (read mc://docs/script-api first), \
 fill_region for boxes, place_blocks for details. Run scripts with dryRun: true first and check the block \
 count and bounding box, or show it with preview, look at it with orbit_shots, then confirm_preview.\n\

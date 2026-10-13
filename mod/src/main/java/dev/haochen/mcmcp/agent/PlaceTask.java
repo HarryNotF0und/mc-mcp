@@ -63,7 +63,7 @@ public final class PlaceTask extends AgentTask {
 			if (problem != null) {
 				throw new Failure(problem);
 			}
-			approach = new GotoTask(agent, Pathfinder.withinReach(pos, MineTask.REACH - 0.3), "a spot within reach of " + pos.toShortString(), true);
+			approach = new GotoTask(agent, clearOf(pos), "a spot within reach of " + pos.toShortString(), true);
 		}
 		if (approach.tick() == Status.RUNNING) {
 			return Status.RUNNING;
@@ -71,6 +71,27 @@ public final class PlaceTask extends AgentTask {
 		place(agent, pos, state);
 		result.addProperty("placed", Blocks.toString(state));
 		return Status.DONE;
+	}
+
+	/**
+	 * Within reach, but not so close that the agent's body overlaps the target: it stops anywhere
+	 * within ~0.35 of a cell's centre, so a block at body height needs 2 cells of distance.
+	 */
+	static Pathfinder.Goal clearOf(BlockPos pos) {
+		Pathfinder.Goal reach = Pathfinder.withinReach(pos, MineTask.REACH - 0.3);
+		return new Pathfinder.Goal() {
+			@Override
+			public boolean reached(BlockPos feet) {
+				boolean bodyHeight = pos.getY() == feet.getY() || pos.getY() == feet.getY() + 1;
+				int manhattan = Math.abs(feet.getX() - pos.getX()) + Math.abs(feet.getZ() - pos.getZ());
+				return reach.reached(feet) && (!bodyHeight || manhattan >= 2);
+			}
+
+			@Override
+			public double estimate(BlockPos feet) {
+				return reach.estimate(feet);
+			}
+		};
 	}
 
 	/** Places immediately (caller has checked reach, item and {@link #problem}). */

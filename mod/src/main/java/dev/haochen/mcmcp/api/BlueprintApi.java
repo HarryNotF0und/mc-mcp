@@ -53,8 +53,10 @@ public final class BlueprintApi {
 
 	public static JsonObject placeBlueprint(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
-		Plan plan = Params.has(params, "building") && !Params.bool(params, "dryRun", false)
-				? ArchApi.plan(server, params, true) : plan(server, params);
+		if (Params.has(params, "building") && !Params.bool(params, "dryRun", false)) {
+			return ArchApi.place(server, params);
+		}
+		Plan plan = plan(server, params);
 		if (Params.bool(params, "dryRun", false)) {
 			JsonObject stats = plan.stats();
 			stats.addProperty("dryRun", true);

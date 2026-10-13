@@ -140,3 +140,22 @@ component (or a `patch`) instead of redesigning the building.
 11 × 9 two-story house with a hall and kitchen downstairs, a bedroom and a study upstairs
 (partition with a door), straight stairs, a gable roof, windows on every side, a path, lanterns
 and a fence.
+
+## Requirements (checked by `inspect_building`)
+
+Optional `"requirements"` object; each entry is reported as pass/fail with the measured value:
+
+| Key | Passes when |
+|---|---|
+| `symmetricFront: true` | front facade mirror symmetry ≥ 0.9 |
+| `roofSymmetric: true` | roof columns mirror exactly and the overhang is the same on both sides |
+| `alignedWindows: true` | ≥ 75% of windows line up with a window on the floor above/below |
+| `minWindowsPerFloor: n` | every floor has at least n windows |
+| `maxHeight: n` | total height (with roof) ≤ n blocks |
+| `minWindowRatio: r` | every facade's glass/wall ratio ≥ r |
+
+## Revising (`revise_building`)
+
+Edit components by id instead of resending the plan: `{"op":"update","id":"upper-front-left","set":{"width":3}}`,
+`{"op":"remove","id":"yard-fence"}`, `{"op":"add","to":"openings","value":{...}}`,
+`{"op":"set","field":"footprint","value":[13,9]}`. Only blocks that differ are changed.

@@ -172,6 +172,11 @@ public class McMcpGameTests implements FabricGameTest {
 		helper.succeed();
 	}
 
+	/** Queues an undo of the most recent change and returns its job id. */
+	static int submitUndo() {
+		return McMcpMod.services().jobs().submit(new RestoreJob(McMcpMod.services().history(), true)).id();
+	}
+
 	static void allowEverywhere() {
 		McMcpConfig config = McMcpMod.services().config();
 		config.allowedRegions = List.of(new McMcpConfig.Region("minecraft:overworld",

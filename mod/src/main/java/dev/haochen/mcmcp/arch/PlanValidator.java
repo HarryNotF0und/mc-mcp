@@ -41,6 +41,8 @@ public final class PlanValidator {
 	private final BuildingPlan p;
 	private final List<Issue> issues = new ArrayList<>();
 	private final JsonObject reach = new JsonObject();
+	/** World positions that belong to this building already (when revising), not collisions. */
+	private java.util.Set<Long> own = java.util.Set.of();
 
 	private PlanValidator(PlanCompiler compiler) {
 		this.compiler = compiler;
@@ -49,7 +51,13 @@ public final class PlanValidator {
 	}
 
 	public static JsonObject validate(PlanCompiler compiler, Guard guard) {
+		return validate(compiler, guard, java.util.Set.of());
+	}
+
+	/** {@code own}: world positions (as longs) the building occupies already, e.g. when revising it. */
+	public static JsonObject validate(PlanCompiler compiler, Guard guard, java.util.Set<Long> own) {
 		PlanValidator v = new PlanValidator(compiler);
+		v.own = own;
 		v.issues.addAll(compiler.issues);
 		v.region(guard);
 		v.collisions();
@@ -88,7 +96,7 @@ public final class PlanValidator {
 		for (var e : g.cells().long2ObjectEntrySet()) {
 			BlockPos l = BlockPos.of(e.getLongKey());
 			BlockState now = g.worldState(l.getX(), l.getY(), l.getZ());
-			if (Terrain.built(now) && now != e.getValue().state()) {
+			if (Terrain.built(now) && now != e.getValue().state() && !own.contains(g.world(l.getX(), l.getY(), l.getZ()).asLong())) {
 				count++;
 				what.merge(dev.haochen.mcmcp.world.Blocks.id(now), 1, Integer::sum);
 				comps.add(e.getValue().component());

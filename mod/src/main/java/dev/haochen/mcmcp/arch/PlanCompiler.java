@@ -654,6 +654,21 @@ public final class PlanCompiler {
 
 	// ---------------------------------------------------------------- output
 
+	/** A compiled block in world coordinates. */
+	public record WorldCell(BlockState state, String component) {
+	}
+
+	/** Every compiled block by world position (as {@code BlockPos.asLong}), with its component. */
+	public it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<WorldCell> worldCells() {
+		var out = new it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<WorldCell>();
+		for (var e : g.cells().long2ObjectEntrySet()) {
+			BlockPos l = BlockPos.of(e.getLongKey());
+			out.put(g.world(l.getX(), l.getY(), l.getZ()).asLong(),
+					new WorldCell(e.getValue().state().rotate(g.rotation), e.getValue().component()));
+		}
+		return out;
+	}
+
 	/** World blocks (rotated states) for placement. */
 	public BlockList toBlockList() {
 		BlockList out = new BlockList();

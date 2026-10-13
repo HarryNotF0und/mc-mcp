@@ -86,9 +86,42 @@ public final class PreviewManager {
 	 * with either the planned states ({@code fake}) or the real ones. Returns the player count.
 	 */
 	private static int send(Plan plan, boolean fake) {
-		ServerLevel level = plan.level();
+		return send(plan.level(), plan.blocks().placements(), fake);
+	}
+
+	/**
+	 * Changes an active preview in place: only {@code changed} blocks are re-sent, and positions in
+	 * {@code removed} (no longer part of the design) show the real world again.
+	 */
+	public void update(int id, Plan plan, Map<BlockPos, BlockState> changed, java.util.Collection<BlockPos> removed) {
+		if (!previews.containsKey(id)) {
+			throw new RpcException(RpcException.INVALID_PARAMS, "no active preview with id " + id);
+		}
+		previews.put(id, new Preview(id, plan));
+		List<Placement> fake = new ArrayList<>();
+		changed.forEach((pos, state) -> fake.add(new Placement(pos, state)));
+		send(plan.level(), fake.iterator(), true);
+		List<Placement> real = new ArrayList<>();
+		removed.forEach(pos -> real.add(new Placement(pos, null)));
+		send(plan.level(), real.iterator(), false);
+	}
+
+	/** The plan behind an active preview. */
+	public Plan plan(int id) {
+		Preview p = previews.get(id);
+		if (p == null) {
+			throw new RpcException(RpcException.INVALID_PARAMS, "no active preview with id " + id);
+		}
+		return p.plan();
+	}
+
+	public boolean active(int id) {
+		return previews.containsKey(id);
+	}
+
+	private static int send(ServerLevel level, Iterator<Placement> placements, boolean fake) {
 		Long2ObjectOpenHashMap<List<Placement>> bySection = new Long2ObjectOpenHashMap<>();
-		for (Iterator<Placement> it = plan.blocks().placements(); it.hasNext(); ) {
+		for (Iterator<Placement> it = placements; it.hasNext(); ) {
 			Placement p = it.next();
 			if (level.isOutsideBuildHeight(p.pos())) {
 				continue;

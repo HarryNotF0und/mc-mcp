@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.McMcpMod;
 import dev.haochen.mcmcp.Services;
+import dev.haochen.mcmcp.arch.BuildingRegistry;
 import dev.haochen.mcmcp.net.RpcDispatcher;
 import net.minecraft.server.MinecraftServer;
 
@@ -19,11 +20,29 @@ public final class PreviewApi {
 		dispatcher.onMainThread("build.confirmPreview", (server, params) -> {
 			Params.require(params, "previewId");
 			Services s = McMcpMod.services();
-			return s.previews().confirm(s, Params.integer(params, "previewId", 0));
+			int id = Params.integer(params, "previewId", 0);
+			BuildingRegistry.Entry building = s.buildings().byPreview(id);
+			if (building != null) {
+				// Remember what the building replaces, so later revisions can restore removed parts.
+				BuildingRegistry.captureOriginals(building, building.level, building.compiled.keySet());
+			}
+			JsonObject job = s.previews().confirm(s, id);
+			if (building != null) {
+				building.previewId = -1;
+				building.built = true;
+				job.addProperty("building", building.name);
+			}
+			return job;
 		});
 		dispatcher.onMainThread("build.discardPreview", (server, params) -> {
 			Params.require(params, "previewId");
-			McMcpMod.services().previews().discard(Params.integer(params, "previewId", 0));
+			Services s = McMcpMod.services();
+			int id = Params.integer(params, "previewId", 0);
+			s.previews().discard(id);
+			BuildingRegistry.Entry building = s.buildings().byPreview(id);
+			if (building != null) {
+				building.previewId = -1;
+			}
 			JsonObject o = new JsonObject();
 			o.addProperty("discarded", true);
 			return o;
@@ -33,6 +52,9 @@ public final class PreviewApi {
 	/** Same input as {@code build.runScript} (with {@code source}) or {@code build.placeBlueprint} (otherwise). */
 	private static CompletableFuture<JsonElement> preview(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
+		if (Params.has(params, "building")) {
+			return server.submit(() -> (JsonElement) ArchApi.preview(server, params));
+		}
 		CompletableFuture<Plan> plan = Params.has(params, "source")
 				? ScriptApi.plan(server, params)
 				: server.submit(() -> BlueprintApi.plan(server, params));
