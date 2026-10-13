@@ -78,3 +78,10 @@
 - [ ] 用第一个候选的 `origin`/`facing` 套用 `mc://examples/two-story-house`，`validate_building` 无错误、所有房间可达。
 - [ ] `preview` + `orbit_shots`：外观完整（两层、窗、门、山墙、屋顶、平台、栅栏）；`confirm_preview` 后在室内截图：楼梯、家具、灯、门可见；`undo` 完全复原。
 - [ ] 改坏方案（删楼梯、去掉门、patch 掉屋顶块）后 `validate_building` 指出对应组件。
+
+## v2 阶段 2：预览、修改与核对
+
+- [ ] 自动化：`RevisionGameTests` 包含屋顶修复、已建成建筑修改、非法场地参数提前拒绝、改名与越界修改保留预览/计数、错误方案确认被拒、淘汰预览清除登记信息、深地基核对、改窗户保留深地基、显式覆盖建筑校验仍受安全限制。
+- [ ] 自动化：`AgentGameTests.placementWalksClearOfDiagonalCorners` 从与目标方块斜对角相交的位置出发，走开后成功放置并只消耗一个物品。
+- [ ] 客户端中预览两层住宅，`inspect_building` 获取外部和各层室内图片；确认构图、遮挡和光照合理。由视觉模型指出问题，用 `revise_building` 修改后再次截图核对。这项不能用 `images: false` 的自动化测试代替。
+- [ ] 预览带屋顶缺口的方案；`confirm_preview` 返回 `1007`，预览仍可见；删除缺陷 patch 后确认成功。单独测试 `ignoreValidation: true` 明确覆盖建筑校验。

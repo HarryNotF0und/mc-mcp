@@ -58,6 +58,17 @@ pub struct PreviewIdArgs {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct ConfirmPreviewArgs {
+    /// Id returned by preview.
+    pub preview_id: u32,
+    /// Explicitly build a building preview even when its architectural validation has errors.
+    /// Safety limits still apply. Default false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_validation: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ScreenshotArgs {
     /// Camera (eye) position [x, y, z]; fractions allowed. Default: the player's eyes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -131,8 +142,10 @@ real world again.")]
         Ok(self.forward("build.preview", params(&args)).await)
     }
 
-    #[tool(description = "Build a preview for real: places exactly the previewed blocks as one undoable change.")]
-    async fn confirm_preview(&self, Parameters(args): Parameters<PreviewIdArgs>) -> Result<CallToolResult, ErrorData> {
+    #[tool(description = "Build a preview for real: places exactly the previewed blocks as one undoable change. \
+Building previews with validation errors are rejected (1007); repair them with revise_building or explicitly \
+pass ignoreValidation: true. Failed validation keeps the preview active. Safety limits always apply.")]
+    async fn confirm_preview(&self, Parameters(args): Parameters<ConfirmPreviewArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.forward_job("build.confirmPreview", params(&args)).await)
     }
 

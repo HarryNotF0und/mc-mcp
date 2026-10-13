@@ -8,6 +8,8 @@ import dev.haochen.mcmcp.arch.BuildingPlan.Floor;
 import dev.haochen.mcmcp.arch.BuildingPlan.Opening;
 import dev.haochen.mcmcp.arch.BuildingPlan.Side;
 import dev.haochen.mcmcp.world.BlockList;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -59,16 +61,21 @@ public final class PlanCompiler {
 	public record Issue(boolean error, String code, String message, List<String> components, List<int[]> local) {
 	}
 
-	private PlanCompiler(BuildingPlan plan, ServerLevel level) {
+	private PlanCompiler(BuildingPlan plan, ServerLevel level, Long2ObjectMap<BlockState> originals) {
 		this.p = plan;
-		this.g = new BuildingGrid(plan, level);
+		this.g = new BuildingGrid(plan, level, originals);
 		this.W = plan.width;
 		this.D = plan.depth;
 		this.H = plan.wallTop();
 	}
 
 	public static PlanCompiler compile(BuildingPlan plan, ServerLevel level) {
-		PlanCompiler c = new PlanCompiler(plan, level);
+		return compile(plan, level, Long2ObjectMaps.emptyMap());
+	}
+
+	/** Revisions compile terrain against the pre-building world, rather than their own foundations. */
+	public static PlanCompiler compile(BuildingPlan plan, ServerLevel level, Long2ObjectMap<BlockState> originals) {
+		PlanCompiler c = new PlanCompiler(plan, level, originals);
 		c.run();
 		return c;
 	}
@@ -602,7 +609,7 @@ public final class PlanCompiler {
 				int top = Math.max(inside ? roofTop : 4, columnTop(x, z));
 				top = Math.min(top, roofTop + 24);
 				for (int y = inside ? 0 : 1; y <= top; y++) {
-					if (!g.has(x, y, z) && (inside || !g.worldState(x, y, z).isAir())) {
+					if (!g.has(x, y, z) && (inside || !g.terrainState(x, y, z).isAir())) {
 						g.set(x, y, z, AIR, inside ? "interior" : "terrain", inside ? Role.CLEAR : Role.TERRAIN);
 					}
 				}
@@ -614,7 +621,7 @@ public final class PlanCompiler {
 			boolean inside = inFootprint(x, z) || e.getValue() == style("foundation");
 			int depth = 0;
 			for (int y = fillFrom.getOrDefault(e.getKey(), -2); ; y--) {
-				BlockState w = g.worldState(x, y, z);
+				BlockState w = g.terrainState(x, y, z);
 				boolean solid = !w.isAir() && w.getFluidState().isEmpty() && !Terrain.vegetation(w)
 						&& !w.getCollisionShape(g.level, g.world(x, y, z)).isEmpty();
 				if (solid) {
@@ -634,7 +641,7 @@ public final class PlanCompiler {
 	/** Local y of the highest non-air world block in a column (bounded), or -1. */
 	private int columnTop(int x, int z) {
 		for (int y = roofTop + 24; y >= 0; y--) {
-			if (!g.worldState(x, y, z).isAir()) {
+			if (!g.terrainState(x, y, z).isAir()) {
 				return y;
 			}
 		}

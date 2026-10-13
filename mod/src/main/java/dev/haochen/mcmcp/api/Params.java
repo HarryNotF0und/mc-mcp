@@ -41,12 +41,16 @@ public final class Params {
 		if (!has(params, name)) {
 			return fallback;
 		}
-		JsonElement e = params.get(name);
-		if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) {
+		return integer(params.get(name), name);
+	}
+
+	/** Strict integer parsing for array elements as well as named parameters. */
+	public static int integer(JsonElement e, String name) {
+		if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) {
 			throw invalid(name + " must be an integer");
 		}
 		double d = e.getAsDouble();
-		if (d != Math.rint(d) || Math.abs(d) > Integer.MAX_VALUE) {
+		if (!Double.isFinite(d) || d != Math.rint(d) || d < Integer.MIN_VALUE || d > Integer.MAX_VALUE) {
 			throw invalid(name + " must be an integer");
 		}
 		return (int) d;

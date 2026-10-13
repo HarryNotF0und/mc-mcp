@@ -127,6 +127,14 @@ public final class BuildingRegistry {
 		return null;
 	}
 
+	/** All preview removal paths (including automatic eviction) clear the registry handle. */
+	public void previewRemoved(int previewId) {
+		Entry e = byPreview(previewId);
+		if (e != null) {
+			e.previewId = -1;
+		}
+	}
+
 	public JsonArray list() {
 		JsonArray a = new JsonArray();
 		entries.values().forEach(e -> a.add(e.status()));

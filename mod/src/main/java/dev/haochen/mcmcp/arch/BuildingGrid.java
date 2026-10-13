@@ -1,6 +1,7 @@
 package dev.haochen.mcmcp.arch;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -25,14 +26,17 @@ public final class BuildingGrid {
 	public final ServerLevel level;
 	public final Rotation rotation;
 	private final Long2ObjectLinkedOpenHashMap<Cell> cells = new Long2ObjectLinkedOpenHashMap<>();
+	/** Pre-building terrain at positions already touched by this building. */
+	private final Long2ObjectMap<BlockState> originals;
 	/** Positions intentionally left open in walls (doors, windows, arches). */
 	public final LongOpenHashSet openingCells = new LongOpenHashSet();
 	private int minX, minY, minZ, maxX, maxY, maxZ;
 	private boolean empty = true;
 
-	BuildingGrid(BuildingPlan plan, ServerLevel level) {
+	BuildingGrid(BuildingPlan plan, ServerLevel level, Long2ObjectMap<BlockState> originals) {
 		this.plan = plan;
 		this.level = level;
+		this.originals = originals;
 		this.rotation = switch (plan.facing) {
 			case WEST -> Rotation.CLOCKWISE_90;
 			case NORTH -> Rotation.CLOCKWISE_180;
@@ -104,6 +108,13 @@ public final class BuildingGrid {
 	/** The world block at a local position as it is now (before building). */
 	public BlockState worldState(int x, int y, int z) {
 		return level.getBlockState(world(x, y, z));
+	}
+
+	/** Terrain generation uses the original world where this building already made changes. */
+	public BlockState terrainState(int x, int y, int z) {
+		BlockPos pos = world(x, y, z);
+		BlockState original = originals.get(pos.asLong());
+		return original != null ? original : level.getBlockState(pos);
 	}
 
 	/** The block that will be there after building: the compiled cell, or the untouched world. */

@@ -3,6 +3,7 @@ package dev.haochen.mcmcp.arch;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.api.Json;
+import dev.haochen.mcmcp.api.Params;
 import dev.haochen.mcmcp.net.RpcException;
 import dev.haochen.mcmcp.world.Guard;
 import dev.haochen.mcmcp.world.Region;
@@ -48,10 +49,27 @@ public final class SiteAnalyzer {
 	public record Request(BlockPos center, int radius, int width, int depth, int margin, @Nullable Direction preferFacing, int top) {
 	}
 
-	public static JsonObject analyze(ServerLevel level, Guard guard, Request r) {
+	/** Validate before the caller attempts any chunk access or generation. */
+	public static void validate(Request r) {
 		if (r.radius < 4 || r.radius > MAX_RADIUS) {
 			throw new RpcException(RpcException.INVALID_PARAMS, "radius must be 4 to " + MAX_RADIUS);
 		}
+		if (r.width < 3 || r.depth < 3 || r.width > 48 || r.depth > 48 || r.width > 2 * r.radius || r.depth > 2 * r.radius) {
+			throw Params.invalid("footprint must be 3-48 per side and fit inside the search area (2 * radius)");
+		}
+		if (r.margin < 0 || r.margin > 6) {
+			throw Params.invalid("margin must be 0-6");
+		}
+		if (r.top < 1 || r.top > 10) {
+			throw Params.invalid("top must be 1-10");
+		}
+		if (r.preferFacing != null && !r.preferFacing.getAxis().isHorizontal()) {
+			throw Params.invalid("facing must be north, south, east or west");
+		}
+	}
+
+	public static JsonObject analyze(ServerLevel level, Guard guard, Request r) {
+		validate(r);
 		SiteAnalyzer a = new SiteAnalyzer(level, guard, r.center, r.radius);
 		JsonObject out = new JsonObject();
 		out.add("area", Region.of(new BlockPos(a.x0, r.center.getY(), a.z0),

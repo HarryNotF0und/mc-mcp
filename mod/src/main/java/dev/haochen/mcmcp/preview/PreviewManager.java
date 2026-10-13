@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntConsumer;
 
 /**
  * "Fake block" previews: the planned blocks are sent to players as block update packets only,
@@ -37,7 +38,12 @@ public final class PreviewManager {
 	}
 
 	private final Map<Integer, Preview> previews = new LinkedHashMap<>();
+	private final IntConsumer onRemoved;
 	private int nextId = 1;
+
+	public PreviewManager(IntConsumer onRemoved) {
+		this.onRemoved = onRemoved;
+	}
 
 	/** Validates the plan like a real write, then shows it. Returns {@code {previewId, players, ...stats}}. */
 	public JsonObject create(Services s, Plan plan) {
@@ -46,6 +52,7 @@ public final class PreviewManager {
 			Iterator<Preview> oldest = previews.values().iterator();
 			Preview p = oldest.next();
 			oldest.remove();
+			onRemoved.accept(p.id());
 			send(p.plan(), false);
 		}
 		Preview preview = new Preview(nextId++, plan);
@@ -59,13 +66,10 @@ public final class PreviewManager {
 
 	/** Places the previewed blocks for real (one undoable job). */
 	public JsonObject confirm(Services s, int id) {
-		Preview p = take(id);
-		try {
-			return p.plan().submit(s);
-		} catch (RuntimeException e) {
-			send(p.plan(), false);
-			throw e;
-		}
+		// Submit before removing: a failed safety check must leave the design available.
+		JsonObject job = plan(id).submit(s);
+		take(id);
+		return job;
 	}
 
 	/** Shows the real blocks again. */
@@ -78,6 +82,7 @@ public final class PreviewManager {
 		if (p == null) {
 			throw new RpcException(RpcException.INVALID_PARAMS, "no active preview with id " + id);
 		}
+		onRemoved.accept(id);
 		return p;
 	}
 
@@ -93,9 +98,13 @@ public final class PreviewManager {
 	 * Changes an active preview in place: only {@code changed} blocks are re-sent, and positions in
 	 * {@code removed} (no longer part of the design) show the real world again.
 	 */
-	public void update(int id, Plan plan, Map<BlockPos, BlockState> changed, java.util.Collection<BlockPos> removed) {
+	public void update(Services s, int id, Plan plan, Map<BlockPos, BlockState> changed, java.util.Collection<BlockPos> removed) {
 		if (!previews.containsKey(id)) {
 			throw new RpcException(RpcException.INVALID_PARAMS, "no active preview with id " + id);
+		}
+		plan.validate(s);
+		if (previews.get(id).plan().level() != plan.level()) {
+			throw new RpcException(RpcException.INVALID_PARAMS, "a preview cannot change dimension");
 		}
 		previews.put(id, new Preview(id, plan));
 		List<Placement> fake = new ArrayList<>();

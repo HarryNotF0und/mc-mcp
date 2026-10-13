@@ -276,6 +276,11 @@ Full details of every request and response: [`protocol/spec.md`](../protocol/spe
    `confirm_preview` (one undoable change). Add `"requirements": {"symmetricFront": true,
    "roofSymmetric": true, "minWindowsPerFloor": 2}` to the plan to have them checked every time.
 
+`confirm_preview` rejects building plans with validation errors (`1007`) and keeps the preview
+available to repair with `revise_building`. An explicit `{"previewId": 1, "ignoreValidation": true}`
+overrides architectural validation; region and size limits still apply. Failed revisions leave
+the design and counters unchanged, and revisions must keep the building's name.
+
 ## Build scripts in short
 
 ```js
@@ -381,10 +386,10 @@ SSH tunnel (`ssh -L 25580:127.0.0.1:25580 server`) and keep `MCMCP_URL` at its d
 ```bash
 cd mod && ./gradlew build          # build the mod
 cd mod && ./gradlew runClient      # start the game with the mod (and WorldEdit) in dev
-cd mod && ./gradlew runGametest    # 22 in-game tests (building, undo, scripts, blueprints,
+cd mod && ./gradlew runGametest    # 32 in-game tests (building, undo, scripts, blueprints,
                                    # previews, WorldEdit, the survival agent, site analysis
                                    # and building plans)
-cd bridge && cargo test            # 17 bridge tests (against a fake mod)
+cd bridge && cargo test            # 18 bridge tests (against a fake mod)
 ```
 
 Design notes are in [`docs/decisions.md`](decisions.md), the manual test checklist is in

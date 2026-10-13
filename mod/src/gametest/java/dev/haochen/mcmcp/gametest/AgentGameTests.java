@@ -1,6 +1,7 @@
 package dev.haochen.mcmcp.gametest;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 import dev.haochen.mcmcp.McMcpMod;
 import dev.haochen.mcmcp.agent.AgentPlayer;
 import dev.haochen.mcmcp.agent.Inventories;
@@ -26,6 +27,40 @@ import java.util.function.Supplier;
  */
 public class AgentGameTests implements FabricGameTest {
 	private static final String EMPTY = FabricGameTest.EMPTY_STRUCTURE;
+
+	@GameTest(template = EMPTY, batch = "agent_place_corner", timeoutTicks = 400)
+	public void placementWalksClearOfDiagonalCorners(GameTestHelper helper) {
+		String name = "CornerAgent";
+		BlockPos feet = helper.absolutePos(new BlockPos(2, 0, 2));
+		BlockPos target = helper.absolutePos(new BlockPos(3, 0, 3));
+		JsonObject spawn = params(name);
+		JsonArray pos = new JsonArray();
+		pos.add(feet.getX() + 0.95);
+		pos.add(feet.getY());
+		pos.add(feet.getZ() + 0.95);
+		spawn.add("pos", pos);
+		AgentApiAccess.call("agent.spawn", spawn);
+		AgentPlayer agent = McMcpMod.services().agents().get(name);
+		agent.getInventory().clearContent();
+		agent.getInventory().add(new net.minecraft.world.item.ItemStack(Items.CRAFTING_TABLE, 1));
+		int[] job = new int[1];
+		helper.startSequence()
+				.thenWaitUntil(() -> helper.assertTrue(agent.onGround(), "agent has landed"))
+				.thenExecute(() -> {
+					helper.assertTrue(agent.getBoundingBox().intersects(new net.minecraft.world.phys.AABB(target)),
+							"fixture overlaps the diagonal target corner");
+					JsonObject place = with(params(name), "block", "minecraft:crafting_table", null, null);
+					place.add("pos", Json.blockPos(target));
+					job[0] = start("agent.placeBlock", place);
+				})
+				.thenWaitUntil(() -> done(helper, job[0]))
+				.thenExecute(() -> {
+					helper.assertBlockPresent(Blocks.CRAFTING_TABLE, new BlockPos(3, 0, 3));
+					helper.assertTrue(Inventories.count(agent.getInventory(), Items.CRAFTING_TABLE) == 0, "one item consumed");
+					AgentApiAccess.call("agent.despawn", params(name));
+				})
+				.thenSucceed();
+	}
 
 	@GameTest(template = EMPTY, batch = "agent_survival", timeoutTicks = 12000)
 	public void chopCraftAndMineCobblestone(GameTestHelper helper) {

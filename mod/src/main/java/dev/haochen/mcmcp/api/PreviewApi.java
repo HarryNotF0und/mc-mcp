@@ -6,6 +6,7 @@ import dev.haochen.mcmcp.McMcpMod;
 import dev.haochen.mcmcp.Services;
 import dev.haochen.mcmcp.arch.BuildingRegistry;
 import dev.haochen.mcmcp.net.RpcDispatcher;
+import dev.haochen.mcmcp.net.RpcException;
 import net.minecraft.server.MinecraftServer;
 
 import java.util.concurrent.CompletableFuture;
@@ -22,6 +23,16 @@ public final class PreviewApi {
 			Services s = McMcpMod.services();
 			int id = Params.integer(params, "previewId", 0);
 			BuildingRegistry.Entry building = s.buildings().byPreview(id);
+			Plan plan = s.previews().plan(id);
+			boolean ignoreValidation = Params.bool(params, "ignoreValidation", false);
+			if (building != null && plan.stats().has("validation")) {
+				JsonObject validation = plan.stats().getAsJsonObject("validation");
+				if (!validation.get("ok").getAsBoolean() && !ignoreValidation) {
+					throw new RpcException(RpcException.BUILDING_INVALID,
+							"the building preview has validation errors; revise it before confirming (or pass ignoreValidation: true)", validation);
+				}
+			}
+			plan.validate(s);
 			if (building != null) {
 				// Remember what the building replaces, so later revisions can restore removed parts.
 				BuildingRegistry.captureOriginals(building, building.level, building.compiled.keySet());

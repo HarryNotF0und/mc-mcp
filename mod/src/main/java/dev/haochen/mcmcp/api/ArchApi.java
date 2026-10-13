@@ -14,7 +14,6 @@ import dev.haochen.mcmcp.arch.PlanOps;
 import dev.haochen.mcmcp.arch.PlanValidator;
 import dev.haochen.mcmcp.arch.SiteAnalyzer;
 import dev.haochen.mcmcp.arch.ViewPlanner;
-import dev.haochen.mcmcp.jobs.PlaceJob;
 import dev.haochen.mcmcp.net.RpcDispatcher;
 import dev.haochen.mcmcp.net.RpcException;
 import dev.haochen.mcmcp.view.ViewHook;
@@ -23,6 +22,8 @@ import dev.haochen.mcmcp.world.Blocks;
 import dev.haochen.mcmcp.world.Guard;
 import dev.haochen.mcmcp.world.Region;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
@@ -85,17 +86,22 @@ public final class ArchApi {
 		int width = 9, depth = 7;
 		if (Params.has(p, "footprint")) {
 			var fp = Params.array(p, "footprint");
-			width = fp.get(0).getAsInt();
-			depth = fp.get(1).getAsInt();
-		}
-		if (width < 3 || depth < 3 || width > 48 || depth > 48 || width > 2 * radius || depth > 2 * radius) {
-			throw Params.invalid("footprint must be 3-48 per side and fit inside the search area (2 * radius)");
+			if (fp.size() != 2) {
+				throw Params.invalid("footprint must be [width, depth]");
+			}
+			width = Params.integer(fp.get(0), "footprint[0]");
+			depth = Params.integer(fp.get(1), "footprint[1]");
 		}
 		Direction prefer = Params.has(p, "facing") ? Direction.byName(Params.string(p, "facing")) : null;
+		if (Params.has(p, "facing") && prefer == null) {
+			throw Params.invalid("facing must be north, south, east or west");
+		}
+		SiteAnalyzer.Request request = new SiteAnalyzer.Request(center, radius, width, depth,
+				Params.integer(p, "margin", 2), prefer, Params.integer(p, "top", 3));
+		SiteAnalyzer.validate(request);
 		Guard.checkChunks(level, Region.of(center.offset(-radius, 0, -radius), center.offset(radius, 0, radius)),
 				Params.bool(p, "loadChunks", false));
-		return SiteAnalyzer.analyze(level, s.guard(), new SiteAnalyzer.Request(center, radius, width, depth,
-				Params.integer(p, "margin", 2), prefer, Math.max(1, Math.min(10, Params.integer(p, "top", 3)))));
+		return SiteAnalyzer.analyze(level, s.guard(), request);
 	}
 
 	// ---------------------------------------------------------------- compile / preview / place
@@ -126,13 +132,18 @@ public final class ArchApi {
 
 	/** {@code own}: positions the building already occupies (revisions), not counted as collisions. */
 	static Compiled compile(MinecraftServer server, JsonObject params, JsonObject planJson, java.util.Set<Long> own) {
+		return compile(server, params, planJson, own, Long2ObjectMaps.emptyMap());
+	}
+
+	static Compiled compile(MinecraftServer server, JsonObject params, JsonObject planJson, java.util.Set<Long> own,
+			Long2ObjectMap<BlockState> originals) {
 		Services s = McMcpMod.services();
 		ServerLevel level = WorldApi.level(server, params);
 		BuildingPlan plan = BuildingPlan.parse(planJson, s.guard());
 		int reach = Math.max(plan.width, plan.depth) + plan.terrainMargin + 8;
 		Guard.checkChunks(level, Region.of(plan.origin.offset(-reach, 0, -reach), plan.origin.offset(reach, 0, reach)),
 				Params.bool(params, "loadChunks", false));
-		PlanCompiler compiler = PlanCompiler.compile(plan, level);
+		PlanCompiler compiler = PlanCompiler.compile(plan, level, originals);
 		JsonObject validation = PlanValidator.validate(compiler, s.guard(), own);
 		BlockList blocks = compiler.toBlockList();
 		JsonObject stats = blocks.stats(12);
@@ -168,10 +179,12 @@ public final class ArchApi {
 		Services s = McMcpMod.services();
 		Compiled c = compile(server, params);
 		BuildingRegistry.Entry old = s.buildings().find(BuildingRegistry.nameOf(c.planJson));
+		Plan plan = c.toPlan(Params.bool(params, "loadChunks", false));
+		plan.validate(s);
 		if (old != null && old.previewId >= 0 && s.previews().active(old.previewId)) {
 			s.previews().discard(old.previewId);
 		}
-		JsonObject out = s.previews().create(s, c.toPlan(Params.bool(params, "loadChunks", false)));
+		JsonObject out = s.previews().create(s, plan);
 		BuildingRegistry.Entry e = s.buildings().update(c.planJson, c.level, c.worldCells());
 		e.previewId = out.get("previewId").getAsInt();
 		out.addProperty("building", e.name);
@@ -183,9 +196,12 @@ public final class ArchApi {
 		Services s = McMcpMod.services();
 		Compiled c = compile(server, params);
 		requireValid(c, params);
+		BuildingRegistry.nameOf(c.planJson);
+		Plan plan = c.toPlan(Params.bool(params, "loadChunks", false));
+		plan.validate(s);
 		BuildingRegistry.Entry e = s.buildings().update(c.planJson, c.level, c.worldCells());
 		BuildingRegistry.captureOriginals(e, c.level, e.compiled.keySet());
-		JsonObject job = c.toPlan(Params.bool(params, "loadChunks", false)).submit(s);
+		JsonObject job = plan.submit(s);
 		e.built = true;
 		job.addProperty("building", e.name);
 		return job;
@@ -214,11 +230,9 @@ public final class ArchApi {
 	private static JsonObject revise(MinecraftServer server, JsonObject p) {
 		Services s = McMcpMod.services();
 		BuildingRegistry.Entry e = s.buildings().get(Params.string(p, "name"));
-		if (Params.bool(p, "userApproved", false)) {
-			e.rounds = 0;
-		}
+		int rounds = Params.bool(p, "userApproved", false) ? 0 : e.rounds;
 		int limit = s.config().maxRevisionRounds;
-		if (e.rounds >= limit) {
+		if (rounds >= limit) {
 			throw new RpcException(RpcException.INVALID_PARAMS, "revision limit reached: " + e.rounds + " revisions of " + e.name
 					+ " since the user last approved (maxRevisionRounds = " + limit + "). Show the user the current state and ask; "
 					+ "if they want more changes, call again with userApproved: true");
@@ -226,11 +240,11 @@ public final class ArchApi {
 		JsonObject newPlan;
 		if (Params.has(p, "building")) {
 			newPlan = Params.object(p, "building").deepCopy();
-			if (!BuildingRegistry.nameOf(newPlan).equals(e.name)) {
-				throw Params.invalid("building.name must stay \"" + e.name + "\"");
-			}
 		} else {
 			newPlan = PlanOps.apply(e.plan, Params.array(p, "ops"));
+		}
+		if (!BuildingRegistry.nameOf(newPlan).equals(e.name)) {
+			throw Params.invalid("building.name must stay \"" + e.name + "\"");
 		}
 		JsonObject compileParams = new JsonObject();
 		compileParams.addProperty("loadChunks", true);
@@ -239,7 +253,8 @@ public final class ArchApi {
 		}
 		Long2ObjectLinkedOpenHashMap<WorldCell> before = e.compiled != null ? e.compiled
 				: compile(server, compileParams, e.plan).worldCells();
-		Compiled now = compile(server, compileParams, newPlan, e.built ? before.keySet() : java.util.Set.of());
+		Compiled now = compile(server, compileParams, newPlan, e.built ? before.keySet() : java.util.Set.of(),
+				e.built ? e.originals : Long2ObjectMaps.emptyMap());
 		BuildingRegistry.Diff diff = BuildingRegistry.diff(before, now.worldCells());
 
 		JsonObject out = new JsonObject();
@@ -248,7 +263,7 @@ public final class ArchApi {
 		out.add("validation", now.validation);
 		String applied;
 		if (e.previewId >= 0 && s.previews().active(e.previewId)) {
-			s.previews().update(e.previewId, now.toPlan(true), diff.set(), diff.removed());
+			s.previews().update(s, e.previewId, now.toPlan(true), diff.set(), diff.removed());
 			applied = "preview";
 		} else if (e.built) {
 			if (!Params.bool(p, "confirm", false)) {
@@ -275,7 +290,7 @@ public final class ArchApi {
 		}
 		s.buildings().update(newPlan, now.level, now.worldCells());
 		e.revision++;
-		e.rounds++;
+		e.rounds = rounds + 1;
 		out.addProperty("applied", applied);
 		out.addProperty("revision", e.revision);
 		out.addProperty("roundsLeft", Math.max(0, limit - e.rounds));
@@ -307,13 +322,14 @@ public final class ArchApi {
 			if (e.level != null) {
 				cp.addProperty("dimension", e.level.dimension().location().toString());
 			}
-			Compiled c = compile(server, cp, e.plan, e.built && e.compiled != null ? e.compiled.keySet() : java.util.Set.of());
+			Compiled c = compile(server, cp, e.plan, e.built && e.compiled != null ? e.compiled.keySet() : java.util.Set.of(),
+					e.built ? e.originals : Long2ObjectMaps.emptyMap());
 			JsonObject out = new JsonObject();
 			out.add("status", e.status());
 			out.add("validation", c.validation);
 			out.add("design", DesignMetrics.measure(c.compiler.grid(), e.plan));
 			if (e.built) {
-				out.add("verification", verify(c));
+				out.add("verification", verify(c.level, e.compiled != null ? e.compiled : c.worldCells()));
 			}
 			List<ViewPlanner.View> planned = ViewPlanner.plan(c.compiler.grid(), c.worldCells(), views, views.contains("interior") ? Math.max(fov, 85) : fov);
 			return new Object[]{out, planned};
@@ -355,17 +371,17 @@ public final class ArchApi {
 	}
 
 	/** Compares the world with the plan, per component (ignoring doors being open etc.). */
-	private static JsonObject verify(Compiled c) {
+	private static JsonObject verify(ServerLevel level, Long2ObjectLinkedOpenHashMap<WorldCell> cells) {
 		Map<String, Integer> wrong = new LinkedHashMap<>();
 		JsonArray samples = new JsonArray();
 		int total = 0, bad = 0;
-		for (var e : c.worldCells().long2ObjectEntrySet()) {
+		for (var e : cells.long2ObjectEntrySet()) {
 			total++;
 			BlockPos pos = BlockPos.of(e.getLongKey());
-			BlockState want = e.getValue().state(), have = c.level.getBlockState(pos);
+			BlockState want = e.getValue().state(), have = level.getBlockState(pos);
 			// Panes, fences, walls etc. connect to whatever is next to them in the world.
 			if (normalize(want) == normalize(have)
-					|| normalize(net.minecraft.world.level.block.Block.updateFromNeighbourShapes(want, c.level, pos)) == normalize(have)) {
+					|| normalize(net.minecraft.world.level.block.Block.updateFromNeighbourShapes(want, level, pos)) == normalize(have)) {
 				continue;
 			}
 			bad++;

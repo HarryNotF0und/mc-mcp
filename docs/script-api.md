@@ -74,8 +74,8 @@ A ring of stone bricks with a torch on top of every fourth block:
 
 ```js
 for (let a = 0; a < 360; a += 10) {
-  const x = Math.round(8 * Math.cos(a * Math.PI / 180));
-  const z = Math.round(8 * Math.sin(a * Math.PI / 180));
+  let x = Math.round(8 * Math.cos(a * Math.PI / 180));
+  let z = Math.round(8 * Math.sin(a * Math.PI / 180));
   b.set(x, 0, z, "minecraft:stone_bricks");
   if (a % 40 === 0) b.set(x, 1, z, "minecraft:torch");
 }

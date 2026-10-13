@@ -75,16 +75,17 @@ public final class PlaceTask extends AgentTask {
 
 	/**
 	 * Within reach, but not so close that the agent's body overlaps the target: it stops anywhere
-	 * within ~0.35 of a cell's centre, so a block at body height needs 2 cells of distance.
+	 * at any point inside a cell. Diagonal adjacency is not enough: the player's bounding box
+	 * can overlap the corner of the target block. Fractional feet height can reach a third layer.
 	 */
 	static Pathfinder.Goal clearOf(BlockPos pos) {
 		Pathfinder.Goal reach = Pathfinder.withinReach(pos, MineTask.REACH - 0.3);
 		return new Pathfinder.Goal() {
 			@Override
 			public boolean reached(BlockPos feet) {
-				boolean bodyHeight = pos.getY() == feet.getY() || pos.getY() == feet.getY() + 1;
-				int manhattan = Math.abs(feet.getX() - pos.getX()) + Math.abs(feet.getZ() - pos.getZ());
-				return reach.reached(feet) && (!bodyHeight || manhattan >= 2);
+				boolean bodyHeight = pos.getY() >= feet.getY() && pos.getY() <= feet.getY() + 2;
+				int separation = Math.max(Math.abs(feet.getX() - pos.getX()), Math.abs(feet.getZ() - pos.getZ()));
+				return reach.reached(feet) && (!bodyHeight || separation >= 2);
 			}
 
 			@Override

@@ -27,6 +27,174 @@ import java.util.Set;
 public class RevisionGameTests implements FabricGameTest {
 	private static final String EMPTY = FabricGameTest.EMPTY_STRUCTURE;
 
+	private static void expectCode(GameTestHelper helper, int code, String method, JsonObject params) {
+		try {
+			AgentApiAccess.call(method, params);
+			throw new GameTestAssertException(method + " should fail with " + code);
+		} catch (RpcException e) {
+			helper.assertTrue(e.code() == code, method + ": expected " + code + ", got " + e.code() + ": " + e.getMessage());
+		}
+	}
+
+	@GameTest(template = EMPTY, batch = "arch_input_guards")
+	public void invalidSiteRequestsFailBeforeChunkAccess(GameTestHelper helper) {
+		JsonObject p = JsonParser.parseString("{\"center\":[100000,-60,100000],\"radius\":49}").getAsJsonObject();
+		expectCode(helper, RpcException.INVALID_PARAMS, "site.analyze", p);
+		p.addProperty("radius", 24);
+		p.add("footprint", JsonParser.parseString("[9]"));
+		expectCode(helper, RpcException.INVALID_PARAMS, "site.analyze", p);
+		p.add("footprint", JsonParser.parseString("[9.5,7]"));
+		expectCode(helper, RpcException.INVALID_PARAMS, "site.analyze", p);
+		p.remove("footprint");
+		p.addProperty("facing", "up");
+		expectCode(helper, RpcException.INVALID_PARAMS, "site.analyze", p);
+		p.remove("facing");
+		p.addProperty("margin", -1);
+		expectCode(helper, RpcException.INVALID_PARAMS, "site.analyze", p);
+		helper.succeed();
+	}
+
+	@GameTest(template = EMPTY, batch = "arch_revision_guards")
+	public void rejectedRevisionsPreservePreviewAndCounters(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		var s = McMcpMod.services();
+		JsonObject b = plan(helper, "guard-test", ArchGameTests.FAR.offset(0, 0, 480));
+		int id = AgentApiAccess.call("build.preview", args(b)).get("previewId").getAsInt();
+		var entry = s.buildings().get("guard-test");
+		entry.rounds = 2;
+		JsonObject rename = ops("guard-test", "[{\"op\":\"set\",\"field\":\"name\",\"value\":\"renamed-test\"}]");
+		rename.addProperty("userApproved", true);
+		expectCode(helper, RpcException.INVALID_PARAMS, "arch.revise", rename);
+		helper.assertTrue(entry.rounds == 2 && entry.revision == 0, "rejected approval must not change counters");
+		helper.assertTrue(s.buildings().find("renamed-test") == null, "revision must not create another building");
+
+		var previous = s.previews().plan(id);
+		var allowed = s.config().allowedRegions;
+		try {
+			s.config().allowedRegions = java.util.List.of();
+			JsonObject change = ops("guard-test", "[{\"op\":\"update\",\"id\":\"roof\",\"set\":{\"overhang\":1}}]");
+			expectCode(helper, RpcException.OUTSIDE_ALLOWED_REGION, "arch.revise", change);
+			helper.assertTrue(s.previews().plan(id) == previous, "rejected revision preserves preview");
+			helper.assertTrue(entry.plan.equals(b) && entry.rounds == 2, "rejected revision preserves registry");
+			JsonObject confirm = new JsonObject();
+			confirm.addProperty("previewId", id);
+			expectCode(helper, RpcException.OUTSIDE_ALLOWED_REGION, "build.confirmPreview", confirm);
+			helper.assertTrue(s.previews().active(id), "rejected confirmation preserves preview");
+		} finally {
+			s.config().allowedRegions = allowed;
+			s.previews().discard(id);
+		}
+		helper.succeed();
+	}
+
+	@GameTest(template = EMPTY, batch = "arch_confirmation_guards")
+	public void invalidBuildingCannotBeConfirmedUntilRepaired(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		JsonObject b = plan(helper, "confirm-test", ArchGameTests.FAR.offset(0, 0, 600));
+		ArchGameTests.patch(b, "roof", 4, 12, 2, "minecraft:air");
+		b.getAsJsonArray("patches").get(0).getAsJsonObject().addProperty("id", "damage");
+		int id = AgentApiAccess.call("build.preview", args(b)).get("previewId").getAsInt();
+		JsonObject confirm = new JsonObject();
+		confirm.addProperty("previewId", id);
+		expectCode(helper, RpcException.BUILDING_INVALID, "build.confirmPreview", confirm);
+		helper.assertTrue(McMcpMod.services().previews().active(id), "invalid preview remains available to repair");
+		AgentApiAccess.call("arch.revise", ops("confirm-test", "[{\"op\":\"remove\",\"id\":\"damage\"}]"));
+		int job = AgentApiAccess.call("build.confirmPreview", confirm).get("jobId").getAsInt();
+		helper.startSequence().thenWaitUntil(() -> McMcpGameTests.assertDone(helper, job)).thenSucceed();
+	}
+
+	@GameTest(template = EMPTY, batch = "arch_preview_eviction")
+	public void evictedPreviewIsNoLongerReportedAsActive(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		var s = McMcpMod.services();
+		for (int i = 0; i < 6; i++) {
+			JsonObject b = plan(helper, "eviction-" + i, ArchGameTests.FAR.offset(0, 0, 720));
+			AgentApiAccess.call("build.preview", args(b));
+		}
+		JsonObject get = new JsonObject();
+		get.addProperty("name", "eviction-0");
+		JsonObject status = AgentApiAccess.call("arch.get", get).getAsJsonObject("status");
+		helper.assertTrue(status.get("state").getAsString().equals("planned") && !status.has("previewId"), "eviction clears registry: " + status);
+		for (int i = 1; i < 6; i++) {
+			s.previews().discard(s.buildings().get("eviction-" + i).previewId);
+		}
+		helper.succeed();
+	}
+
+	@GameTest(template = EMPTY, batch = "arch_foundation_verification", timeoutTicks = 200)
+	public void verificationKeepsDeepFoundationInItsBaseline(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		BlockPos at = ArchGameTests.FAR.offset(0, 6, 840);
+		// The -2 block stops a subsequent terrain compile, hiding damage at -3.
+		for (int y = -2; y >= -4; y--) {
+			helper.setBlock(at.offset(2, y, 2), Blocks.AIR);
+		}
+		helper.setBlock(at.offset(2, -5, 2), Blocks.STONE);
+		JsonObject b = plan(helper, "foundation-test", at);
+		int job = AgentApiAccess.call("build.placeBlueprint", args(b)).get("jobId").getAsInt();
+		helper.startSequence()
+				.thenWaitUntil(() -> McMcpGameTests.assertDone(helper, job))
+				.thenExecute(() -> {
+					helper.assertBlockPresent(Blocks.COBBLESTONE, at.offset(2, -3, 2));
+					int expected = McMcpMod.services().buildings().get("foundation-test").compiled.size();
+					JsonObject before = inspect("foundation-test").getAsJsonObject("verification");
+					helper.assertTrue(before.get("blocks").getAsInt() == expected && before.get("matching").getAsInt() == expected,
+							"verification includes every originally compiled block: " + before);
+					helper.setBlock(at.offset(2, -3, 2), Blocks.AIR);
+					JsonObject damaged = inspect("foundation-test").getAsJsonObject("verification");
+					helper.assertTrue(damaged.getAsJsonObject("mismatchesByComponent").get("foundation").getAsInt() == 1,
+							"buried foundation damage is detected: " + damaged);
+				})
+				.thenSucceed();
+	}
+
+	@GameTest(template = EMPTY, batch = "arch_confirmation_override", timeoutTicks = 200)
+	public void validationOverrideStillEnforcesSafetyLimits(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		var s = McMcpMod.services();
+		JsonObject b = plan(helper, "override-test", ArchGameTests.FAR.offset(0, 0, 960));
+		ArchGameTests.patch(b, "roof", 4, 12, 2, "minecraft:air");
+		int id = AgentApiAccess.call("build.preview", args(b)).get("previewId").getAsInt();
+		JsonObject confirm = new JsonObject();
+		confirm.addProperty("previewId", id);
+		confirm.addProperty("ignoreValidation", true);
+		int cap = s.config().maxVolumePerOp;
+		try {
+			s.config().maxVolumePerOp = 1;
+			expectCode(helper, RpcException.VOLUME_TOO_LARGE, "build.confirmPreview", confirm);
+			helper.assertTrue(s.previews().active(id), "safety rejection preserves overridden preview");
+		} finally {
+			s.config().maxVolumePerOp = cap;
+		}
+		int job = AgentApiAccess.call("build.confirmPreview", confirm).get("jobId").getAsInt();
+		helper.startSequence().thenWaitUntil(() -> McMcpGameTests.assertDone(helper, job)).thenSucceed();
+	}
+
+	@GameTest(template = EMPTY, batch = "arch_revision_terrain", timeoutTicks = 200)
+	public void windowRevisionDoesNotRemoveDeepFoundation(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		BlockPos at = ArchGameTests.FAR.offset(0, 6, 1080);
+		for (int y = -2; y >= -4; y--) {
+			helper.setBlock(at.offset(2, y, 2), Blocks.AIR);
+		}
+		helper.setBlock(at.offset(2, -5, 2), Blocks.STONE);
+		JsonObject b = plan(helper, "terrain-revision-test", at);
+		int[] job = {AgentApiAccess.call("build.placeBlueprint", args(b)).get("jobId").getAsInt()};
+		helper.startSequence()
+				.thenWaitUntil(() -> McMcpGameTests.assertDone(helper, job[0]))
+				.thenExecute(() -> {
+					JsonObject change = ops("terrain-revision-test", "[{\"op\":\"update\",\"id\":\"upper-front-left\",\"set\":{\"width\":3}}]");
+					change.addProperty("confirm", true);
+					JsonObject revised = AgentApiAccess.call("arch.revise", change);
+					helper.assertTrue(revised.getAsJsonObject("diff").get("removed").getAsInt() == 0,
+							"changing windows must preserve the foundation: " + revised);
+					job[0] = revised.getAsJsonObject("job").get("jobId").getAsInt();
+				})
+				.thenWaitUntil(() -> McMcpGameTests.assertDone(helper, job[0]))
+				.thenExecute(() -> helper.assertBlockPresent(Blocks.COBBLESTONE, at.offset(2, -3, 2)))
+				.thenSucceed();
+	}
+
 	private static JsonObject plan(GameTestHelper helper, String name, BlockPos localOrigin) {
 		JsonObject b = ArchGameTests.examplePlan();
 		b.addProperty("name", name);

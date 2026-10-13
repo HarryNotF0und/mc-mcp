@@ -159,3 +159,8 @@ Optional `"requirements"` object; each entry is reported as pass/fail with the m
 Edit components by id instead of resending the plan: `{"op":"update","id":"upper-front-left","set":{"width":3}}`,
 `{"op":"remove","id":"yard-fence"}`, `{"op":"add","to":"openings","value":{...}}`,
 `{"op":"set","field":"footprint","value":[13,9]}`. Only blocks that differ are changed.
+
+The building's name must stay the same in both operations and replacement plans. Failed
+revisions preserve the previous plan, preview, and revision counters. A revised preview goes
+through the same safety checks as a new preview. To confirm a building preview, fix its
+validation errors first; `confirm_preview` otherwise returns `1007` and keeps it active.

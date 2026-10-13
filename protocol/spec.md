@@ -281,9 +281,11 @@
 
 ### `build.confirmPreview`
 
-- params：`{"previewId": n}`
+- params：`{"previewId": n, "ignoreValidation"?: false}`
 - 把预览的方块作为一个写任务真正放置（一个 ChangeSet）。
-- result：任务对象。错误：`-32602`（预览不存在）。
+- 建筑方案的校验有错误时返回 `1007`（`data` 为校验结果），需先修改预览；显式传 `ignoreValidation: true` 可覆盖建筑校验，但不能覆盖区域、体积、高度、区块限制。
+- 确认失败时预览仍然有效，可修改或重试。只有成功提交任务后才移除预览。
+- result：任务对象。错误：`-32602`（预览不存在）、`1007`、以及写入安全检查的错误码。
 
 ### `build.discardPreview`
 
@@ -369,6 +371,7 @@
 
 - 候选位置：两种朝向（宽沿 x 或沿 z）在区域内滑动；地板高度取足迹内地面高度中位数；`cut` = 高出地板的方块数，`fill` = 地板下需要填的方块数；评分 = cut + 0.6·fill + 40·水 + 1000·岩浆 + 100·人造 + 2·树 + 0.3·距中心 + 2·入口可达代价（+5 若未采用请求的朝向）。不在允许区域内的位置被跳过。返回互不重叠的前 `top` 个。
 - `facing`：在该朝向可选的两侧中，选择墙外 `margin` 范围内与地板高差最小、无水/人造、靠近道路的一侧；若请求的 `facing` 不比最优差 2 以上则采用请求的。
+- 参数在加载区块前校验：radius 4–48，footprint 恰好两个整数（各 3–48 且不超过 2×radius），margin 0–6，top 1–10，facing 仅四个水平方向；非法参数返回 `-32602`。
 - `origin` / `facing` 可直接用作建筑方案的 `origin` / `facing`。
 
 ### `arch.validate`
@@ -390,6 +393,8 @@
 
 以 `building` 预览或放置的方案按 `name` 登记（`<游戏目录>/mcmcp/buildings/<name>.json` 持久化）。同名的新预览替换旧预览。
 
+预览被丢弃、确认或自动淘汰时清除登记表中的 `previewId`；新预览校验失败不会删除旧预览。
+
 ### `arch.get`
 
 - params：`{"name"?}`；无 `name` 时返回 `{"buildings": [状态]}`。
@@ -400,12 +405,15 @@
 - params：`{"name", "views"?: ["front","back","left","right","elevated","interior"], "images"?: true, "width"?: 640, "height"?: 400, "fov"?: 70, "daylight"?: true}`
 - result：`{"status", "validation", "design": {"facades", "windows", "roof", "proportions", "issues": [{"code", "message"}], "requirements": [{"name", "pass", "value"?}]}, "verification"?: {"blocks", "matching", "mismatchesByComponent", "samples"}, "views"|"shots": [{"view", "label", "pos", "yaw", "pitch", "shows", "png"?}], "width"?, "height"?, "note"?}`
 - `verification` 仅对已建成建筑；忽略 open/powered/occupied/lit，以及玻璃板、栅栏等按邻居连接的形状属性。
+- `verification` 使用保存的完整编译结果，包括深地基和地形清理位置。修改/设计校验用保存的原始地形重新编译，避免把建筑自身的地基当成天然地面。
 - 无客户端（专用服务器）时没有图片，带 `note`。
 
 ### `arch.revise`
 
 - params：`{"name", "ops"?: [操作], "building"?: 完整方案, "confirm"?: false, "userApproved"?: false, "ignoreValidation"?: false}`
 - 操作：`update {id, set}`、`remove {id}`、`add {to, value}`、`set {field, value, merge?}`（见 `PlanOps`）。
+- 通过完整方案或 ops 修改时，建筑 name 必须保持不变。
 - 应用：有活动预览 → 只更新预览中变化的方块（`applied: "preview"`）；已建成 → 需要 `confirm: true`，否则 `applied: "nothing"` 并说明会改多少方块；确认后差异作为一个可撤销任务放置（`applied: "world"`, `job`）；否则只改方案（`"plan"`）。
 - 每次修改 `revision` 和 `roundsSinceApproval` 加 1；达到 `config.maxRevisionRounds`（默认 3）后返回 `-32602 revision limit reached`，直到用户同意（`userApproved: true` 归零）。
+- 更新预览也必须通过写入安全检查；失败时保留方案、预览和计数器。`userApproved` 只在修改成功时重置计数；对已建成建筑的未确认建议不修改计数。
 - result：`{"building", "diff": {"changed", "removed", "unchanged", "components": [...]}, "validation", "applied", "job"?, "revision", "roundsLeft"}`

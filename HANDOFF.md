@@ -1,6 +1,6 @@
 # 交接文档（给接手的 Codex / 其他 Agent）
 
-最后更新：2026-10-13，提交 `c1640d4`（v2 阶段 2 完成）。先读本文件，再读 `CLAUDE.md`（约定与常用命令）和 `PLAN-v2.md`（当前计划，英文）。
+最后更新：2026-10-13，基于提交 `0336daa`（交接文档，v2 阶段 2 后），追加代码审查与可靠性修复。先读本文件，再读 `CLAUDE.md`（约定与常用命令）和 `PLAN-v2.md`（当前计划，英文）。审查结果和待办见 [docs/review-2026-10-13.md](docs/review-2026-10-13.md)。
 
 ## 1. 项目是什么
 
@@ -9,7 +9,7 @@ MC-MCP 让 AI 通过 MCP 在 Minecraft 里看、建、玩。
 - `mod/`：Fabric 模组，Minecraft **1.21.1**、Java 21、Mojang 映射。它在 `127.0.0.1:25580` 上提供 WebSocket + JSON-RPC 服务，用 token 鉴权，token 在游戏目录的 `config/mcmcp.json`。
 - `bridge/`：Rust MCP 服务（`rmcp` 3.5.1，stdio）。每个 MCP tool 转成一次 JSON-RPC 调用。
 - `protocol/spec.md`：协议的唯一权威来源（中文）。修改协议时，`spec.md`、`mod/` 和 `bridge/` 三处要同时改。
-- `docs/USAGE.md`：用户手册，含全部 39 个工具。`docs/building-plan.md`：建筑方案格式。`docs/decisions.md`：设计决策 D1–D26。`docs/manual-test.md`：手动测试清单。
+- `docs/USAGE.md`：用户手册，含全部 39 个工具。`docs/building-plan.md`：建筑方案格式。`docs/decisions.md`：设计决策 D1–D27。`docs/manual-test.md`：手动测试清单。
 
 PLAN.md（v1，阶段 1–5）已全部完成。PLAN-v2.md 的进度：
 
@@ -34,7 +34,7 @@ PLAN-v2 的硬性规则：
 
 ```bash
 cd mod && ./gradlew build            # 构建模组
-cd mod && ./gradlew runGametest      # 24 个 GameTest，约 40 秒；结果在 mod/build/gametest/junit.xml
+cd mod && ./gradlew runGametest      # 32 个 GameTest；结果在 mod/build/gametest/junit.xml
 cd mod && ./gradlew runClient        # 带模组启动游戏
 cd mod && ./gradlew genSources       # 反编译源码；不确定 MC API 时查源码，别凭印象
 cd bridge && cargo test              # 18 个单元测试
@@ -42,7 +42,7 @@ cd bridge && cargo clippy --all-targets   # 保持 0 警告
 cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridge(.exe)
 ```
 
-当前结果：GameTest 24/24 通过，`cargo test` 全部通过，clippy 0 警告。
+当前结果：`gradlew build runGametest` 成功，GameTest 32/32 通过，`cargo test` 18/18 通过，`cargo clippy --all-targets -- -D warnings` 通过。新增的四个早期回归测试在原代码上均失败，修复后通过。Windows 沙箱中测试需要 Gradle 缓存和 localhost socket 权限；无权限时 Rust 的 socket 错误不是代码失败。`cargo fmt --check` 仍报告仓库原有的格式差异。
 
 ### 实机调试（Windows + Git Bash）
 
@@ -81,7 +81,7 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
    - 现状：用 `SET_FLAGS` 放下的红石线、中继器、活塞不会收到邻居更新，可能“放好了但不工作”，也可能状态不一致。
    - 建议：给红石相关的放置加一种“有界更新模式”。放置完成后，对本次改动的位置及其 6 个邻居调用 `level.updateNeighborsAt` / `neighborChanged`，或者对红石方块用 `Block.UPDATE_ALL` 放置。
    - 要求：影响范围限制在改动包围盒外扩 1 格。撤销（`RestoreJob`）时同样处理。
-   - 把取舍写进 `decisions.md`，编号 D27。
+   - 把取舍写进 `decisions.md`，编号 D28（D27 已用于本轮可靠性修复）。
 2. **新增 RPC 和工具**：
    - `redstone.inspect`：网络图，包括电源、导线功率、中继器延迟和朝向、比较器、活塞的伸缩状态、侦测器、门。
    - `redstone.trigger`：按钮、拉杆、压力板，或者放置/移除红石块。
@@ -105,13 +105,15 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
   - 大型建筑测试要放到 `ArchGameTests.FAR = (400,0,0)` 的偏移处：房子在 FAR，屋顶测试在 FAR+(0,0,120)，世界修改测试在 FAR+(0,0,240)，选址测试在 (-400,0,0)。
   - 用 `loadChunks: true`，或调用 `Guard.checkChunks(..., true)`。
   - 服务器 tick 不等待：要等任务完成用 `thenWaitUntil(() -> McMcpGameTests.assertDone(helper, jobId))`。
-- **`AgentGameTests.chopCraftAndMineCobblestone` 曾经不稳定**：报错“agent is standing where … should go”。`PlaceTask` 已加 `clearOf(pos)` 目标，最近一次运行通过，但不保证 100% 稳定。
+- **假玩家放置的斜对角相交已修复**：本轮重现“agent is standing where … should go”，发现 `clearOf(pos)` 的曼哈顿距离允许身体与目标角落相交。改为至少一个水平轴相隔 2 格，含第三层高度保护；新增确定性的 `placementWalksClearOfDiagonalCorners` 测试通过，生存验收也通过。
 - **阶段 2 没做实机验收**：带真实截图、由视觉模型判断的完整“预览 → 观察 → 修改”循环没在游戏里跑过，GameTest 只覆盖确定性的部分（`images: false`）。建议：
   1. 用 `dev/restart_client.sh` 启动游戏。
   2. 依次调用 `preview` 两层房子示例（`examples/buildings/two-story-house.json`，origin 选在玩家附近）、`inspect_building`、`revise_building`。
   3. 检查各视点图片是否合理，尤其是室内视角和遮挡。
 - **验证器**：世界核对会忽略 open/powered/occupied/lit，并按邻居规范化连接形状（`ArchApi.verify`）。阶段 3 加红石后，powered 状态是否该参与核对需要重新考虑。
 - `PlanOps` 的 `set` 用 `field`（顶层字段），不是路径。屋顶通过它的 id 用 `update` 修改。
+- **审查修复（D27）**：场地参数在访问区块前校验；完整方案与 ops 都不可改建筑名称；预览修改执行写入安全检查；失败的修改/确认保留当前方案和预览，失败的 `userApproved` 不重置轮数；自动淘汰清除登记表 ID；确认有建筑校验错误的预览返回 1007（可显式 `ignoreValidation: true`）；核对保留完整深地基列表，修改用原始地形编译，避免误删地基。脚本文档里的循环内 `const` 示例也已改为 `let`。
+- **待修复的登记表生命周期/持久化问题**：`built` 在任务提交时就设置，取消/失败未同步；保存文件只有方案，缺少维度和建造状态，且目录按游戏而非世界隔离；已建成建筑同名新预览覆盖核对基准；删除部件只还原原始 BlockState，丢失容器 NBT。具体触发条件和建议见审查文档。继续红石阶段前应先处理这些数据一致性问题。
 
 ## 6. 需要用户处理的事
 
