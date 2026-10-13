@@ -21,3 +21,13 @@
 - [ ] 游戏未启动时调用 `ping`：几秒内返回 "cannot connect to Minecraft ... Is the game running ..."，不挂起。
 - [ ] 错误 token：返回 "Minecraft rejected the token ..."。
 - [ ] 退出世界再进入（不重启 bridge）：退出期间调用报连接错误，重新进入后调用自动恢复。
+
+## 阶段 2
+
+- [ ] 自动化：`cd mod && ./gradlew runGametest` 全部通过（放置、撤销/重做、箱子内容恢复、形状更新不出区域、各类错误码、分层格式）。
+- [ ] `get_player_state`：位置、朝向、`lookingAt` 与游戏内一致（F3 屏幕核对）。
+- [ ] `get_area_summary` 与 `get_layer_slices` 读取一块区域，内容与游戏内一致；分层格式的 x/y/z 方向正确。
+- [ ] 让 AI 读取区域后建一个 7 × 5 × 7 空心石砖房（带门洞）；一次 `undo` 后区域与建造前的 `get_layer_slices` 完全一致。选一个旁边有树或水的位置再测一次。
+- [ ] `fill_region` 填充 100 × 20 × 100（`loadChunks: true`），之后立即 `get_world_info`：`mspt` 远低于 50，游戏内无明显卡顿；然后 `undo`。
+- [ ] 错误码：白名单外 `1001`；300000 格 `1002`；`minecraft:tnt` 和拼错的方块 `1003`；远处未加载区块不带 `loadChunks` 时 `1004`；`job_status` 不存在的 id `1005`；`place_blocks` 4097 项 `-32602`。
+- [ ] 一个大填充进行中调用 `cancel_job`：已放置部分保留，`undo` 能撤销这部分。

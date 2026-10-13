@@ -9,6 +9,14 @@ base {
 	archivesName = project.archives_base_name
 }
 
+sourceSets {
+	// GameTests live in their own mod so they never ship in the release jar.
+	gametest {
+		compileClasspath += main.compileClasspath + main.output
+		runtimeClasspath += main.runtimeClasspath + main.output
+	}
+}
+
 repositories {
 	mavenCentral()
 }
@@ -20,6 +28,21 @@ loom {
 		"mcmcp" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
+		}
+		"mcmcp-gametest" {
+			sourceSet sourceSets.gametest
+		}
+	}
+
+	runs {
+		// ./gradlew runGametest ¡ª headless server that runs every @GameTest and exits.
+		gametest {
+			server()
+			name "Game Test"
+			vmArg "-Dfabric-api.gametest"
+			vmArg "-Dfabric-api.gametest.report-file=${project.layout.buildDirectory.get()}/gametest/junit.xml"
+			runDir "build/gametest"
+			source sourceSets.gametest
 		}
 	}
 }

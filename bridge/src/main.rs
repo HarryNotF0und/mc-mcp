@@ -29,7 +29,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mc = Arc::new(McClient::new(config));
-    let service = McServer::new(mc)
+    let job_wait = Duration::from_millis(env_u64("MCMCP_JOB_WAIT_MS", 20_000));
+    let service = McServer::new(mc, job_wait)
         .serve(rmcp::transport::stdio())
         .await
         .context("failed to start MCP server on stdio")?;

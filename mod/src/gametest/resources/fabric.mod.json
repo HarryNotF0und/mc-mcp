@@ -1,0 +1,14 @@
+{
+	"schemaVersion": 1,
+	"id": "mcmcp-gametest",
+	"version": "0.0.0",
+	"name": "MC-MCP GameTests",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-gametest": ["dev.haochen.mcmcp.gametest.McMcpGameTests"]
+	},
+	"depends": {
+		"mcmcp": "*",
+		"fabric-gametest-api-v1": "*"
+	}
+}

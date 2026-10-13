@@ -43,8 +43,25 @@ public final class McMcpConfig {
 		if (config == null) {
 			config = new McMcpConfig();
 		}
+		boolean changed = !Files.exists(file);
+		McMcpConfig defaults = new McMcpConfig();
 		if (config.token == null || config.token.isBlank()) {
 			config.token = newToken();
+			changed = true;
+		}
+		if (config.host == null) {
+			config.host = defaults.host;
+			changed = true;
+		}
+		if (config.allowedRegions == null) {
+			config.allowedRegions = defaults.allowedRegions;
+			changed = true;
+		}
+		if (config.blockBlacklist == null) {
+			config.blockBlacklist = defaults.blockBlacklist;
+			changed = true;
+		}
+		if (changed) {
 			config.save(file);
 		}
 		return config;
