@@ -166,10 +166,10 @@ impl McClient {
     /// Returns the live connection, (re)connecting and authenticating if needed.
     async fn ensure_connected(&self) -> Result<Connection, McError> {
         let mut guard = self.conn.lock().await;
-        if let Some(conn) = guard.as_ref() {
-            if conn.is_alive() {
-                return Ok(conn.clone());
-            }
+        if let Some(conn) = guard.as_ref()
+            && conn.is_alive()
+        {
+            return Ok(conn.clone());
         }
         *guard = None;
 

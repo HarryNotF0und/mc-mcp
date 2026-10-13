@@ -202,7 +202,7 @@ public class AgentGameTests implements FabricGameTest {
 	private static void done(GameTestHelper helper, int id) {
 		Job j = McMcpMod.services().jobs().get(id);
 		if (!j.state().finished()) {
-			throw new GameTestAssertException("job " + id + " still " + j.state().id());
+			throw new GameTestAssertException("job " + id + " still " + j.state().id() + ": " + j.toJson());
 		}
 		helper.assertTrue(j.state() == Job.State.DONE, "job finished: " + j.toJson());
 	}

@@ -25,11 +25,14 @@ public final class GatherTask extends AgentTask {
 	private final int radius;
 	private final int startCount;
 	private final LongOpenHashSet skipped = new LongOpenHashSet();
+	private final java.util.Set<Integer> unreachableItems = new java.util.HashSet<>();
 	private final Map<String, Boolean> dropsCache = new HashMap<>();
 	private AgentTask child;
 	private BlockPos target;
 	private int mined;
 	private int failures;
+	private int ticks;
+	private final java.util.ArrayDeque<String> recent = new java.util.ArrayDeque<>();
 
 	public GatherTask(AgentPlayer agent, Item item, int count, int radius) {
 		super(agent);
@@ -39,8 +42,16 @@ public final class GatherTask extends AgentTask {
 		this.startCount = Inventories.count(agent.getInventory(), item);
 	}
 
+	private void event(String e) {
+		if (recent.size() == 8) {
+			recent.removeFirst();
+		}
+		recent.addLast("t" + ticks + " " + e);
+	}
+
 	@Override
 	public Status tick() {
+		ticks++;
 		if (child != null) {
 			try {
 				if (child.tick() == Status.RUNNING) {
@@ -48,15 +59,19 @@ public final class GatherTask extends AgentTask {
 				}
 				if (child instanceof MineTask) {
 					mined++;
-					child = new CollectTask(agent, 5);
+					event("mined " + target.toShortString() + " " + child.result());
+					child = new CollectTask(agent, 5, unreachableItems);
 					return Status.RUNNING;
 				}
+				event("collected " + child.result());
 				child = null;
 			} catch (Failure f) {
 				if (target != null) {
 					skipped.add(target.asLong());
 				}
+				event((child instanceof MineTask ? "mine failed: " : "collect failed: ") + f.getMessage());
 				child = null;
+				result.addProperty("lastError", f.getMessage());
 				if (++failures > MAX_FAILURES) {
 					throw new Failure("gave up after " + failures + " failed attempts; last: " + f.getMessage());
 				}
@@ -79,10 +94,15 @@ public final class GatherTask extends AgentTask {
 	}
 
 	private void report(int have) {
+		result.addProperty("step", child == null ? "searching" : child instanceof MineTask ? "mining " + target.toShortString() : "collecting drops");
+		result.addProperty("failedAttempts", failures);
 		result.addProperty("item", Inventories.id(item));
 		result.addProperty("have", have);
 		result.addProperty("gained", have - startCount);
 		result.addProperty("blocksMined", mined);
+		com.google.gson.JsonArray r = new com.google.gson.JsonArray();
+		recent.forEach(r::add);
+		result.add("recent", r);
 	}
 
 	private BlockPos findSource() {

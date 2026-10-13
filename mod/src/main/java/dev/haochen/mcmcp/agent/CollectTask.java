@@ -21,20 +21,31 @@ public final class CollectTask extends AgentTask {
 	private static final int TICKS_PER_ITEM = 200;
 
 	private final double radius;
-	private final Set<Integer> unreachable = new HashSet<>();
+	private final Set<Integer> unreachable;
 	private final Map<Item, Integer> before = new HashMap<>();
 	private ItemEntity current;
 	private GotoTask approach;
 	private int ticksOnCurrent;
 
 	public CollectTask(AgentPlayer agent, double radius) {
+		this(agent, radius, new HashSet<>());
+	}
+
+	/** {@code unreachable} (entity ids) is shared so repeated collects don't retry the same items. */
+	public CollectTask(AgentPlayer agent, double radius, Set<Integer> unreachable) {
 		super(agent);
 		this.radius = radius;
+		this.unreachable = unreachable;
 		snapshot(before);
 	}
 
 	@Override
 	public Status tick() {
+		// Vanilla picks items up on bounding-box contact; items in a hole next to the agent may
+		// never touch it, so pick up anything within arm's length (pickup delay still applies).
+		for (ItemEntity e : agent.serverLevel().getEntitiesOfClass(ItemEntity.class, agent.getBoundingBox().inflate(1.5, 1.0, 1.5))) {
+			e.playerTouch(agent);
+		}
 		if (current != null && (current.isRemoved() || ticksOnCurrent > TICKS_PER_ITEM)) {
 			if (!current.isRemoved()) {
 				unreachable.add(current.getId());
@@ -48,7 +59,7 @@ public final class CollectTask extends AgentTask {
 				return Status.DONE;
 			}
 			ticksOnCurrent = 0;
-			approach = new GotoTask(agent, Pathfinder.near(current.blockPosition(), 0.9), "item " + current.getItem().getItem(), false);
+			approach = new GotoTask(agent, Pathfinder.near(current.blockPosition(), 1.5), "item " + current.getItem().getItem(), false);
 		}
 		ticksOnCurrent++;
 		try {
