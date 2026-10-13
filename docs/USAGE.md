@@ -325,7 +325,7 @@ SSH tunnel (`ssh -L 25580:127.0.0.1:25580 server`) and keep `MCMCP_URL` at its d
 ```bash
 cd mod && ./gradlew build          # build the mod
 cd mod && ./gradlew runClient      # start the game with the mod (and WorldEdit) in dev
-cd mod && ./gradlew runGametest    # 18 in-game tests (building, undo, scripts, blueprints,
+cd mod && ./gradlew runGametest    # 19 in-game tests (building, undo, scripts, blueprints,
                                    # previews, WorldEdit, the survival agent)
 cd bridge && cargo test            # 16 bridge tests (against a fake mod)
 ```

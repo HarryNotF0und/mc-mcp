@@ -181,6 +181,40 @@ public class AgentGameTests implements FabricGameTest {
 				.thenSucceed();
 	}
 
+	@GameTest(template = EMPTY, batch = "agent_build", timeoutTicks = 4000)
+	public void buildsABlueprintByHandAndListsMissingMaterials(GameTestHelper helper) {
+		String name = "BuildAgent";
+		JsonObject spawn = params(name);
+		spawn.add("pos", Json.blockPos(helper.absolutePos(new BlockPos(1, 0, 1))));
+		AgentApiAccess.call("agent.spawn", spawn);
+		AgentPlayer agent = McMcpMod.services().agents().get(name);
+		agent.getInventory().clearContent();
+		BlockPos at = new BlockPos(4, 0, 4);
+		JsonObject build = params(name);
+		build.add("blueprint", com.google.gson.JsonParser.parseString(
+				"{\"palette\":{\"P\":\"minecraft:oak_planks\"},\"layers\":[[\"PP\",\"PP\"]]}"));
+		build.add("origin", Json.blockPos(helper.absolutePos(at)));
+		try {
+			AgentApiAccess.call("agent.buildBlueprint", build);
+			throw new GameTestAssertException("expected missing materials");
+		} catch (RpcException e) {
+			String missing = e.data().toString();
+			helper.assertTrue(missing.contains("minecraft:oak_planks") && missing.contains("\"missing\":4"), "missing list: " + missing);
+		}
+		agent.getInventory().add(new net.minecraft.world.item.ItemStack(Items.OAK_PLANKS, 4));
+		int[] job = {start("agent.buildBlueprint", build)};
+		helper.startSequence()
+				.thenWaitUntil(() -> done(helper, job[0]))
+				.thenExecute(() -> {
+					for (BlockPos p : new BlockPos[]{at, at.east(), at.south(), at.east().south()}) {
+						helper.assertBlockPresent(Blocks.OAK_PLANKS, p);
+					}
+					helper.assertTrue(Inventories.count(agent.getInventory(), Items.OAK_PLANKS) == 0, "planks used up");
+					AgentApiAccess.call("agent.despawn", params(name));
+				})
+				.thenSucceed();
+	}
+
 	private static JsonObject params(String agent) {
 		JsonObject p = new JsonObject();
 		p.addProperty("agent", agent);
