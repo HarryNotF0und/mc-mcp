@@ -10,6 +10,13 @@ use crate::mc_client::{McError, RpcError};
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewArgs {
+    /// Building plan ("format": "mcmcp.building/1", see mc://docs/building-plan). Give this instead of a
+    /// blueprint/name/schematic (or script source, for preview).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building: Option<Value>,
+    /// Place a building plan even if validation reports errors.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_validation: Option<bool>,
     /// Script source (as in run_script). Give a script (source/sourceFile) or a blueprint (blueprint/name).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -110,7 +117,8 @@ pub struct OrbitShotsArgs {
 impl McServer {
     #[tool(description = "Show a script or blueprint as fake blocks to the players without changing the world \
 (nothing is placed, nothing to undo). Takes the same arguments as run_script (source/sourceFile + origin) or \
-place_blueprint (blueprint/name + origin, rotation, mirror). Returns a previewId; look at it (e.g. with orbit_shots), \
+place_blueprint (blueprint/name + origin, rotation, mirror), or a building plan (building: {...}; the result \
+includes its validation, and invalid plans can still be previewed). Returns a previewId; look at it (e.g. with orbit_shots), \
 then confirm_preview to build it for real or discard_preview to remove it. Players who reload the chunks see the \
 real world again.")]
     async fn preview(&self, Parameters(mut args): Parameters<PreviewArgs>) -> Result<CallToolResult, ErrorData> {

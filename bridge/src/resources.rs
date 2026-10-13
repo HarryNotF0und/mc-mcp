@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 use crate::mc_client::McClient;
 
 pub const SCRIPT_API: &str = include_str!("../../docs/script-api.md");
+pub const BUILDING_PLAN: &str = include_str!("../../docs/building-plan.md");
+pub const EXAMPLE_HOUSE: &str = include_str!("../../examples/buildings/two-story-house.json");
 
 pub const BUILD_ASSISTANT: &str = "build_assistant";
 
@@ -23,6 +25,12 @@ pub fn list() -> Vec<Resource> {
             .with_mime_type("application/json"),
         Resource::new("mc://jobs", "jobs")
             .with_description("Recent build jobs with their state and progress.")
+            .with_mime_type("application/json"),
+        Resource::new("mc://docs/building-plan", "building-plan")
+            .with_description("Building plan format (mcmcp.building/1): local frame, components, styles, validation codes.")
+            .with_mime_type("text/markdown"),
+        Resource::new("mc://examples/two-story-house", "two-story-house")
+            .with_description("A complete, valid two-story house plan to start from (set origin/facing from analyze_build_site).")
             .with_mime_type("application/json"),
         Resource::new("mc://docs/script-api", "script-api")
             .with_description("Reference for build scripts (run_script): the b object, coordinates, limits, examples.")
@@ -39,8 +47,14 @@ pub fn templates() -> Vec<ResourceTemplate> {
 }
 
 pub async fn read(mc: &McClient, uri: &str) -> Result<ReadResourceResult, ErrorData> {
-    if uri == "mc://docs/script-api" {
-        return Ok(ReadResourceResult::new(vec![ResourceContents::text(SCRIPT_API, uri)]));
+    let static_text = match uri {
+        "mc://docs/script-api" => Some(SCRIPT_API),
+        "mc://docs/building-plan" => Some(BUILDING_PLAN),
+        "mc://examples/two-story-house" => Some(EXAMPLE_HOUSE),
+        _ => None,
+    };
+    if let Some(text) = static_text {
+        return Ok(ReadResourceResult::new(vec![ResourceContents::text(text, uri)]));
     }
     let (method, params): (&str, Value) = match uri {
         "mc://world/info" => ("world.getInfo", json!({})),
@@ -76,7 +90,9 @@ pub fn get_prompt(name: &str) -> Result<GetPromptResult, ErrorData> {
 get_area_summary to see the terrain (surface heightmap, water, entities) around the site, and \
 get_layer_slices for exact blocks of small areas. Coordinates are [x, y, z], y up, north = -z, east = +x; \
 region corners are inclusive.\n\
-2. Plan the structure and its exact coordinates. Pick the ground level from the heightmap.\n\
+2. Plan the structure and its exact coordinates. For buildings: analyze_build_site for origin/facing, write a \
+building plan (read mc://docs/building-plan, start from mc://examples/two-story-house), validate_building until it \
+has no errors, then preview it. For other structures pick the ground level from the heightmap.\n\
 3. Prefer one run_script call for anything with repetition or curves (read mc://docs/script-api first), \
 fill_region for boxes, place_blocks for details. Run scripts with dryRun: true first and check the block \
 count and bounding box, or show it with preview, look at it with orbit_shots, then confirm_preview.\n\
@@ -111,6 +127,17 @@ mod tests {
         let r = read(&offline_client(), "mc://docs/script-api").await.unwrap();
         let text = serde_json::to_value(&r.contents[0]).unwrap()["text"].as_str().unwrap().to_string();
         assert!(text.contains("b.cylinder"));
+    }
+
+    #[tokio::test]
+    async fn building_docs_and_example_are_served() {
+        let doc = read(&offline_client(), "mc://docs/building-plan").await.unwrap();
+        let text = serde_json::to_value(&doc.contents[0]).unwrap()["text"].as_str().unwrap().to_string();
+        assert!(text.contains("UNREACHABLE_ROOM"));
+        let ex = read(&offline_client(), "mc://examples/two-story-house").await.unwrap();
+        let json = serde_json::to_value(&ex.contents[0]).unwrap()["text"].as_str().unwrap().to_string();
+        let plan: Value = serde_json::from_str(&json).expect("example plan is valid JSON");
+        assert_eq!(plan["format"], "mcmcp.building/1");
     }
 
     #[tokio::test]

@@ -53,7 +53,8 @@ public final class BlueprintApi {
 
 	public static JsonObject placeBlueprint(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
-		Plan plan = plan(server, params);
+		Plan plan = Params.has(params, "building") && !Params.bool(params, "dryRun", false)
+				? ArchApi.plan(server, params, true) : plan(server, params);
 		if (Params.bool(params, "dryRun", false)) {
 			JsonObject stats = plan.stats();
 			stats.addProperty("dryRun", true);
@@ -67,6 +68,9 @@ public final class BlueprintApi {
 	 * ({@code blueprint | name, origin?, rotation?, mirror?, skipAir?, dimension?, loadChunks?}). Server thread.
 	 */
 	public static Plan plan(MinecraftServer server, JsonObject params) {
+		if (Params.has(params, "building")) {
+			return ArchApi.plan(server, params, false);
+		}
 		Services s = McMcpMod.services();
 		ServerLevel level = WorldApi.level(server, params);
 		JsonObject json;

@@ -45,6 +45,7 @@
 | `1004` | 区块未加载 |
 | `1005` | 任务不存在 |
 | `1006` | 脚本执行错误（`data` 附带行号和消息） |
+| `1007` | 建筑方案校验未通过（`data` 为校验结果），见 `arch.validate` |
 
 ## 数据约定
 
@@ -338,3 +339,49 @@
 | `agent.buildBlueprint` | 同 `build.placeBlueprint`（`blueprint` / `name` / `schematic`、`origin`、`rotation`、`mirror`），加 `agent?` | 自下而上逐块放置，挡路的方块先挖掉，蓝图中的空气跳过。开始前检查材料：缺料时 `-32602`，`data.missing: [{item, missing}]`。`result: {placed, alreadyThere, errors?}`。 |
 
 寻路细节：只在已加载区块内搜索，最多 30000 个节点、水平 96 格。不进入水、岩浆、火、仙人掌、甜浆果丛、蜘蛛网、细雪等。挖掘时不挖与流体相邻的方块、会下落的方块（沙、砂砾）及其下方、带方块实体的方块、基岩，以及用最佳工具需要超过 5 秒才能挖掉的方块。
+
+## 建筑规划（v2 阶段 1）
+
+建筑方案格式（`mcmcp.building/1`）的完整说明见 `docs/building-plan.md`。
+
+### `site.analyze`
+
+在主线程上逐列扫描（有界：半径 4–48）。
+
+- params：`{"center"?: [x,y,z]（默认第一个真实玩家）, "radius"?: 24, "footprint"?: [width, depth]（默认 [9, 7]）, "margin"?: 2, "facing"?: 方向, "top"?: 3, "dimension"?, "loadChunks"?}`
+- 每列：地面高度（自上而下跳过树木、植物、雪，遇到天然地面或人造方块为止，最多 40 格）、表面类型（ground / water / lava / tree / built / void）、是否道路（土径、圆石、石砖、平滑石头、磨制安山岩）。
+- result：
+
+```json
+{
+  "area": {"min": [...], "max": [...]},
+  "summary": {"columns": 2401, "groundMin": 61, "groundMax": 71, "meanSlope": 0.98, "maxStep": 5, "buildableFraction": 0.25,
+              "surfaces": {"ground": 1014, "water": 330, "lava": 0, "tree": 1880, "built": 15, "road": 0}},
+  "map": {"step": 2, "originXZ": [x, z], "legend": "...", "rows": [".TT~#=..."], "heights": [[64, 65, ...]]},
+  "candidates": [
+    {"origin": [14, 65, 8], "facing": "east", "footprint": [11, 9], "worldSizeXZ": [9, 11], "score": 118.2,
+     "stats": {"floorY": 65, "groundMin": 61, "groundMax": 67, "cut": 16, "fill": 34, "maxFoundationDepth": 4,
+               "treeColumns": 31, "waterColumns"?: n, "builtColumns"?: n, "lavaColumns"?: n,
+               "entranceAccessCost": {"east": 4.1, "west": 9.7}, "distanceFromCenter": 22}}
+  ]
+}
+```
+
+- 候选位置：两种朝向（宽沿 x 或沿 z）在区域内滑动；地板高度取足迹内地面高度中位数；`cut` = 高出地板的方块数，`fill` = 地板下需要填的方块数；评分 = cut + 0.6·fill + 40·水 + 1000·岩浆 + 100·人造 + 2·树 + 0.3·距中心 + 2·入口可达代价（+5 若未采用请求的朝向）。不在允许区域内的位置被跳过。返回互不重叠的前 `top` 个。
+- `facing`：在该朝向可选的两侧中，选择墙外 `margin` 范围内与地板高差最小、无水/人造、靠近道路的一侧；若请求的 `facing` 不比最优差 2 以上则采用请求的。
+- `origin` / `facing` 可直接用作建筑方案的 `origin` / `facing`。
+
+### `arch.validate`
+
+- params：`{"building": 方案, "dimension"?, "loadChunks"?}`
+- 编译（只读世界：地基深度、需要清除的地形）并校验，不放置。
+- result：`{"blocks", "bounds", "counts", ..., "building", "facing", "origin", "floors", "terrain": {"foundationMaxDepth"}, "validation": {...}, "components": [{"id", "role", "blocks", "bounds"}]}`
+- `validation`：`{"ok": bool, "errors": [问题], "warnings": [问题], "reachable": {"floors": {id: bool}, "rooms": {id: bool}}}`；问题为 `{"code", "message", "components": [...], "positions"?: [世界坐标], "localPositions"?: [方案局部坐标]}`。错误码表见 `docs/building-plan.md`。
+
+### 方案作为放置来源
+
+`build.placeBlueprint` 与 `build.preview` 接受 `"building": 方案`（代替 `blueprint` / `name` / `schematic` / `source`），以及 `"ignoreValidation"?: false`。
+
+- `build.preview`：总是允许，结果中带 `validation`。
+- `build.placeBlueprint`：校验有错误时返回 `1007`（`data` 为校验结果），除非 `ignoreValidation: true`；`dryRun` 返回统计和校验结果。
+- 放置的方块包括地基、平台、清除的地形（空气），作为一个 ChangeSet 可撤销。

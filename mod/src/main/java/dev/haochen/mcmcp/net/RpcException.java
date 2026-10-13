@@ -17,6 +17,7 @@ public class RpcException extends RuntimeException {
 	public static final int CHUNK_NOT_LOADED = 1004;
 	public static final int JOB_NOT_FOUND = 1005;
 	public static final int SCRIPT_ERROR = 1006;
+	public static final int BUILDING_INVALID = 1007;
 
 	private final int code;
 	private final JsonElement data;

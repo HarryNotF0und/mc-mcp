@@ -23,9 +23,11 @@ public final class CollectTask extends AgentTask {
 	private final double radius;
 	private final Set<Integer> unreachable;
 	private final Map<Item, Integer> before = new HashMap<>();
+	private final Map<Integer, Integer> attempts = new HashMap<>();
 	private ItemEntity current;
 	private GotoTask approach;
 	private int ticksOnCurrent;
+	private int waitedForFalling;
 
 	public CollectTask(AgentPlayer agent, double radius) {
 		this(agent, radius, new HashSet<>());
@@ -55,6 +57,10 @@ public final class CollectTask extends AgentTask {
 		if (current == null) {
 			current = nearest();
 			if (current == null) {
+				// Drops that are still falling (e.g. from a tree trunk) are targeted once they land.
+				if (anyFalling() && ++waitedForFalling < 60) {
+					return Status.RUNNING;
+				}
 				report();
 				return Status.DONE;
 			}
@@ -68,16 +74,24 @@ public final class CollectTask extends AgentTask {
 				agent.stop();
 			}
 		} catch (Failure f) {
-			unreachable.add(current.getId());
+			// Give an item a few tries (the agent may be better placed later) before giving up on it.
+			if (attempts.merge(current.getId(), 1, Integer::sum) >= 3) {
+				unreachable.add(current.getId());
+			}
 			current = null;
 		}
 		return Status.RUNNING;
 	}
 
+	private boolean anyFalling() {
+		return !agent.serverLevel().getEntitiesOfClass(ItemEntity.class, agent.getBoundingBox().inflate(radius),
+				e -> e.isAlive() && !e.onGround() && !e.isInWater() && !unreachable.contains(e.getId())).isEmpty();
+	}
+
 	private ItemEntity nearest() {
 		AABB box = agent.getBoundingBox().inflate(radius);
 		List<ItemEntity> items = agent.serverLevel().getEntitiesOfClass(ItemEntity.class, box,
-				e -> e.isAlive() && !unreachable.contains(e.getId()));
+				e -> e.isAlive() && (e.onGround() || e.isInWater()) && !unreachable.contains(e.getId()));
 		BlockPos at = agent.blockPosition();
 		return items.stream().min(Comparator.comparingDouble(e -> e.blockPosition().distSqr(at))).orElse(null);
 	}

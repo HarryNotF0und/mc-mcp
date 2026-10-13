@@ -22,6 +22,18 @@ Claude ──MCP (stdio)──▶ mc-mcp-bridge ──WebSocket + token──▶
 - **Screenshots** (single-player): from any camera position, without the HUD, in daylight on request;
   **orbit shots** photograph a build from four sides so the AI can check its own work.
 
+### Plan buildings like an architect
+- **Site analysis** (`analyze_build_site`): scans the terrain around you (ground height through
+  trees, water, existing builds, roads) and recommends where a building of a given size fits best,
+  with the floor level, how much earth to cut and fill, and which side the entrance should face.
+- **Building plans**: describe a building as components (floors, rooms, interior walls, doors,
+  windows, arches, stairs, roof, towers, path, fence) in a structured JSON format. The mod turns it
+  into blocks, with a foundation down to solid ground and a level terrace on uneven land.
+- **Validation** (`validate_building`): checks the design before anything is built: every floor
+  and room can be walked to, entrances and stairs work, walls and roof are closed, nothing
+  floats, doors and stairs face the right way, no existing building is overwritten, and it stays
+  in the allowed area. Problems name the component to fix.
+
 ### Build ("god mode")
 - **Place blocks / fill boxes** (solid, hollow, outline) / **clear** regions, with exact block states
   such as `minecraft:oak_stairs[facing=north]`.
@@ -172,7 +184,7 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 
 ---
 
-## Tool reference (34 tools)
+## Tool reference (36 tools)
 
 **Basics**: `ping`, `get_world_info` (versions, players, time, tick time, whether paused, WorldEdit).
 
@@ -187,6 +199,13 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 | `screenshot` | A picture from any position/direction (single-player) |
 | `orbit_shots` | Pictures of a region from several sides (single-player) |
 
+**Planning**
+
+| Tool | Purpose |
+|---|---|
+| `analyze_build_site` | Terrain summary, character map, ranked building sites with `origin`/`facing` |
+| `validate_building` | Compile and check a building plan; per-component errors and reachability |
+
 **Building**
 
 | Tool | Purpose |
@@ -195,10 +214,10 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 | `fill_region` | Fill a box: `solid`, `hollow`, `outline`; block or WorldEdit pattern |
 | `clear_region` | Set a box to air |
 | `run_script` | Run a build script (`source` or `sourceFile`), `dryRun` for statistics |
-| `place_blueprint` | Place a blueprint (`blueprint` JSON, saved `name`, or WorldEdit `schematic`) with rotation/mirror |
+| `place_blueprint` | Place a blueprint (`blueprint` JSON, saved `name`, WorldEdit `schematic`) with rotation/mirror, or a building plan (`building`) |
 | `save_blueprint` | Export a region as JSON or (with WorldEdit) `.schem` |
 | `list_blueprints` | Saved blueprints and schematic files |
-| `preview` / `confirm_preview` / `discard_preview` | Fake-block previews |
+| `preview` / `confirm_preview` / `discard_preview` | Fake-block previews (scripts, blueprints, building plans) |
 | `job_status` / `cancel_job` | Progress of long operations; cancel (finished part stays undoable) |
 | `undo` / `redo` / `list_history` | History of changes |
 
@@ -219,6 +238,31 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 Full details of every request and response: [`protocol/spec.md`](../protocol/spec.md).
 
 ---
+
+## Designing a building
+
+1. *"Find a spot near me for an 11 × 9 house"* → `analyze_build_site {"footprint": [11, 9]}` returns
+   candidates such as `{"origin": [14, 65, 8], "facing": "east", "stats": {"cut": 16, "fill": 34, ...}}`.
+2. The AI writes a plan (format: [`docs/building-plan.md`](building-plan.md), also served as
+   `mc://docs/building-plan`), usually starting from the example `mc://examples/two-story-house`
+   with the candidate's `origin` and `facing`:
+
+   ```json
+   {
+     "format": "mcmcp.building/1", "name": "house", "origin": [14, 65, 8], "facing": "east",
+     "footprint": [11, 9],
+     "floors": [{"id": "ground", "height": 4}, {"id": "upper", "height": 4}],
+     "openings": [{"id": "front-door", "type": "door", "floor": "ground", "wall": "front", "at": 5}],
+     "stairs": [{"id": "main-stairs", "from": "ground", "start": [1, 6], "direction": "back"}],
+     "roof": {"type": "gable"}
+   }
+   ```
+
+   Local coordinates: x from the left wall to the right wall (seen from the front), z from the back
+   to the front, y up from the ground floor. The mod handles the rotation.
+3. `validate_building {"building": ...}` until `ok` is true. Errors look like
+   `{"code": "UNREACHABLE_ROOM", "components": ["study"], ...}`, and the fix goes into that component.
+4. `preview {"building": ...}`, `orbit_shots`, then `confirm_preview` (one undoable change).
 
 ## Build scripts in short
 
@@ -325,9 +369,10 @@ SSH tunnel (`ssh -L 25580:127.0.0.1:25580 server`) and keep `MCMCP_URL` at its d
 ```bash
 cd mod && ./gradlew build          # build the mod
 cd mod && ./gradlew runClient      # start the game with the mod (and WorldEdit) in dev
-cd mod && ./gradlew runGametest    # 19 in-game tests (building, undo, scripts, blueprints,
-                                   # previews, WorldEdit, the survival agent)
-cd bridge && cargo test            # 16 bridge tests (against a fake mod)
+cd mod && ./gradlew runGametest    # 22 in-game tests (building, undo, scripts, blueprints,
+                                   # previews, WorldEdit, the survival agent, site analysis
+                                   # and building plans)
+cd bridge && cargo test            # 17 bridge tests (against a fake mod)
 ```
 
 Design notes are in [`docs/decisions.md`](decisions.md), the manual test checklist is in

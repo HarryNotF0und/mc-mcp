@@ -1,0 +1,54 @@
+{
+  "format": "mcmcp.building/1",
+  "name": "two-story-house",
+  "origin": [0, 64, 0],
+  "facing": "south",
+  "footprint": [11, 9],
+  "style": {
+    "foundation": "minecraft:cobblestone",
+    "floor": "minecraft:spruce_planks",
+    "wall": "minecraft:white_terracotta",
+    "frame": "minecraft:dark_oak_log",
+    "roofStairs": "minecraft:dark_oak_stairs",
+    "roofSlab": "minecraft:dark_oak_slab",
+    "stairs": "minecraft:spruce_stairs",
+    "window": "minecraft:glass_pane",
+    "door": "minecraft:spruce_door"
+  },
+  "floors": [
+    { "id": "ground", "height": 4 },
+    { "id": "upper", "height": 4 }
+  ],
+  "rooms": [
+    { "id": "hall", "floor": "ground", "function": "living", "min": [2, 1], "max": [9, 7] },
+    { "id": "kitchen", "floor": "ground", "function": "kitchen", "min": [6, 1], "max": [9, 3] },
+    { "id": "bedroom", "floor": "upper", "function": "bedroom", "min": [1, 1], "max": [4, 7] },
+    { "id": "study", "floor": "upper", "function": "library", "min": [6, 1], "max": [9, 7] }
+  ],
+  "partitions": [
+    { "id": "upper-divider", "floor": "upper", "from": [5, 1], "to": [5, 7] }
+  ],
+  "openings": [
+    { "id": "front-door", "type": "door", "floor": "ground", "wall": "front", "at": 5 },
+    { "id": "front-window-left", "type": "window", "floor": "ground", "wall": "front", "at": 2, "width": 2 },
+    { "id": "front-window-right", "type": "window", "floor": "ground", "wall": "front", "at": 7, "width": 2 },
+    { "id": "back-window", "type": "window", "floor": "ground", "wall": "back", "at": 4, "width": 3 },
+    { "id": "right-window", "type": "window", "floor": "ground", "wall": "right", "at": 3, "width": 3 },
+    { "id": "upper-front-left", "type": "window", "floor": "upper", "wall": "front", "at": 2, "width": 2 },
+    { "id": "upper-front-right", "type": "window", "floor": "upper", "wall": "front", "at": 7, "width": 2 },
+    { "id": "upper-back-left", "type": "window", "floor": "upper", "wall": "back", "at": 2, "width": 2 },
+    { "id": "upper-back-right", "type": "window", "floor": "upper", "wall": "back", "at": 7, "width": 2 },
+    { "id": "upper-left", "type": "window", "floor": "upper", "wall": "left", "at": 3, "width": 2 },
+    { "id": "study-door", "type": "door", "floor": "upper", "partition": "upper-divider", "at": 3 }
+  ],
+  "stairs": [
+    { "id": "main-stairs", "from": "ground", "start": [1, 6], "direction": "back" }
+  ],
+  "roof": { "id": "roof", "type": "gable", "ridge": "width", "overhang": 1 },
+  "outdoor": [
+    { "id": "front-path", "type": "path", "length": 4 },
+    { "id": "door-lanterns", "type": "lanterns" },
+    { "id": "yard-fence", "type": "fence", "margin": 2 }
+  ],
+  "terrain": { "margin": 2, "maxFoundationDepth": 12 }
+}

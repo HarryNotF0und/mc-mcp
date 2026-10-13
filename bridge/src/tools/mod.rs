@@ -2,6 +2,7 @@
 //! [`McServer::new`] merges them.
 
 mod agent;
+mod arch;
 mod build;
 mod jobs;
 mod scripts;
@@ -63,7 +64,8 @@ impl McServer {
                 + Self::jobs_router()
                 + Self::scripts_router()
                 + Self::view_router()
-                + Self::agent_router(),
+                + Self::agent_router()
+                + Self::arch_router(),
         }
     }
 

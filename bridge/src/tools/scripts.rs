@@ -33,6 +33,13 @@ pub struct RunScriptArgs {
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaceBlueprintArgs {
+    /// Building plan ("format": "mcmcp.building/1", see mc://docs/building-plan). Give this instead of a
+    /// blueprint/name/schematic (or script source, for preview).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building: Option<Value>,
+    /// Place a building plan even if validation reports errors.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_validation: Option<bool>,
     /// Blueprint in palette + layers format: {"palette":{".":"minecraft:air","S":"minecraft:stone"},
     /// "layers":[["SS","S."]]} (layers bottom-up = y; strings = z; characters = x). Give this or `name`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,7 +130,8 @@ Example: {\"origin\":[100,64,200],\"source\":\"b.cylinder(0,0,0,7,30,'minecraft:
     #[tool(description = "Place a blueprint (palette + layers format, as returned by get_layer_slices or save_blueprint), \
 optionally rotated 0/90/180/270 degrees clockwise and/or mirrored. Block states are rotated too \
 (stairs, logs, doors face the right way). `origin` is where the rotated footprint's minimum corner goes. \
-Also places WorldEdit schematics (schematic: file name) when WorldEdit is installed. \
+Also places WorldEdit schematics (schematic: file name) when WorldEdit is installed, and building plans \
+(building: {...}; refused with error 1007 if validation fails, see validate_building). \
 One undoable change. Example: {\"name\":\"house\",\"origin\":[120,64,200],\"rotation\":90}")]
     async fn place_blueprint(&self, Parameters(args): Parameters<PlaceBlueprintArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.forward_job("build.placeBlueprint", params(&args)).await)
