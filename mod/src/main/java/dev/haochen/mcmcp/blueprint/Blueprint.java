@@ -32,6 +32,19 @@ public final class Blueprint {
 		this.origin = origin;
 	}
 
+	/** A blueprint from already-parsed cells, indexed {@code (y * sz + z) * sx + x}. */
+	public static Blueprint of(int sx, int sy, int sz, BlockState[] cells) {
+		if (cells.length != sx * sy * sz) {
+			throw new IllegalArgumentException("cells do not match size");
+		}
+		return new Blueprint(sx, sy, sz, cells, null);
+	}
+
+	/** Every distinct state, for blacklist checks. */
+	public java.util.Set<BlockState> states() {
+		return new java.util.HashSet<>(java.util.Arrays.asList(cells));
+	}
+
 	public @Nullable BlockPos origin() {
 		return origin;
 	}

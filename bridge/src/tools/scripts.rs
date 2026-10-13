@@ -37,9 +37,13 @@ pub struct PlaceBlueprintArgs {
     /// "layers":[["SS","S."]]} (layers bottom-up = y; strings = z; characters = x). Give this or `name`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blueprint: Option<Value>,
-    /// Name of a blueprint saved with save_blueprint. Give this or `blueprint`.
+    /// Name of a blueprint saved with save_blueprint. Give this, `blueprint` or `schematic`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// WorldEdit schematic file (.schem / .schematic) in WorldEdit's schematics folder, e.g. "castle"
+    /// (see list_blueprints). Needs WorldEdit on the server. `origin` is required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schematic: Option<String>,
     /// World position of the placed blueprint's minimum corner. Defaults to the blueprint's own origin.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<[i32; 3]>,
@@ -72,6 +76,10 @@ pub struct SaveBlueprintArgs {
     /// Omit to get the blueprint JSON back directly (best for small regions).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// "json" (default, our palette + layers format) or "schem" (a WorldEdit Sponge schematic in
+    /// WorldEdit's schematics folder, usable by WorldEdit and other tools; needs WorldEdit and `name`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
     /// Dimension id; default "minecraft:overworld".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dimension: Option<String>,
@@ -115,6 +123,7 @@ Example: {\"origin\":[100,64,200],\"source\":\"b.cylinder(0,0,0,7,30,'minecraft:
     #[tool(description = "Place a blueprint (palette + layers format, as returned by get_layer_slices or save_blueprint), \
 optionally rotated 0/90/180/270 degrees clockwise and/or mirrored. Block states are rotated too \
 (stairs, logs, doors face the right way). `origin` is where the rotated footprint's minimum corner goes. \
+Also places WorldEdit schematics (schematic: file name) when WorldEdit is installed. \
 One undoable change. Example: {\"name\":\"house\",\"origin\":[120,64,200],\"rotation\":90}")]
     async fn place_blueprint(&self, Parameters(args): Parameters<PlaceBlueprintArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.forward_job("build.placeBlueprint", params(&args)).await)
@@ -125,5 +134,12 @@ saved on the server for later place_blueprint calls and only a summary is return
 Example: {\"region\":{\"min\":[100,64,200],\"max\":[106,70,206]},\"name\":\"house\"}")]
     async fn save_blueprint(&self, Parameters(args): Parameters<SaveBlueprintArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.forward("build.saveRegionAsBlueprint", params(&args)).await)
+    }
+
+    #[tool(description = "List saved blueprints (for place_blueprint name) and, when WorldEdit is installed, \
+schematic files in WorldEdit's schematics folder (for place_blueprint schematic). Drop downloaded .schem files \
+into that folder to build them.")]
+    async fn list_blueprints(&self) -> Result<CallToolResult, ErrorData> {
+        Ok(self.forward("build.listBlueprints", serde_json::json!({})).await)
     }
 }

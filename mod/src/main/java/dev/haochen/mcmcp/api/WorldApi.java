@@ -9,6 +9,7 @@ import dev.haochen.mcmcp.world.Blocks;
 import dev.haochen.mcmcp.world.Guard;
 import dev.haochen.mcmcp.world.LayerFormat;
 import dev.haochen.mcmcp.world.Region;
+import dev.haochen.mcmcp.worldedit.WorldEditBridge;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -88,6 +89,10 @@ public final class WorldApi {
 		result.addProperty("mspt", Math.round(server.getAverageTickTimeNanos() / 1e4) / 100.0);
 		// Single-player pauses when the pause menu is open (or the window loses focus); jobs then wait.
 		result.addProperty("paused", server.isPaused());
+		WorldEditBridge we = WorldEditBridge.get();
+		if (we != null) {
+			result.addProperty("worldEdit", we.version());
+		}
 		return result;
 	}
 

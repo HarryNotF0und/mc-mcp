@@ -9,6 +9,7 @@ import dev.haochen.mcmcp.jobs.Job;
 import dev.haochen.mcmcp.jobs.PlaceJob;
 import dev.haochen.mcmcp.jobs.PlaceJob.Placement;
 import dev.haochen.mcmcp.net.RpcDispatcher;
+import dev.haochen.mcmcp.world.BlockPattern;
 import dev.haochen.mcmcp.world.Guard;
 import dev.haochen.mcmcp.world.Region;
 import net.minecraft.core.BlockPos;
@@ -90,22 +91,22 @@ public final class BuildApi {
 		Services s = McMcpMod.services();
 		ServerLevel level = WorldApi.level(server, params);
 		Region region = Params.region(params, "region");
-		BlockState block = s.guard().block(Params.string(params, "block"));
+		BlockPattern block = s.guard().pattern(Params.string(params, "block"));
 		String mode = Params.string(params, "mode", "solid");
 		BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
 		Iterator<Placement> source;
 		long total;
 		switch (mode) {
 			case "solid" -> {
-				source = positions(region, false, p -> block);
+				source = positions(region, false, p -> block.at(p.getX(), p.getY(), p.getZ()));
 				total = region.volume();
 			}
 			case "hollow" -> {
-				source = positions(region, false, p -> region.onShell(p) ? block : air);
+				source = positions(region, false, p -> region.onShell(p) ? block.at(p.getX(), p.getY(), p.getZ()) : air);
 				total = region.volume();
 			}
 			case "outline" -> {
-				source = positions(region, true, p -> block);
+				source = positions(region, true, p -> block.at(p.getX(), p.getY(), p.getZ()));
 				total = shellSize(region);
 			}
 			default -> throw Params.invalid("mode must be solid, hollow or outline");

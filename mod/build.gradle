@@ -19,6 +19,8 @@ sourceSets {
 
 repositories {
 	mavenCentral()
+	// WorldEdit (optional integration)
+	maven { url = 'https://maven.enginehub.org/repo/' }
 }
 
 loom {
@@ -58,6 +60,11 @@ dependencies {
 		transitive = false
 	}
 	include("org.java-websocket:Java-WebSocket:${project.java_websocket_version}")
+
+	// Optional: schematic files and WorldEdit patterns when WorldEdit is installed.
+	// Compile against it, and run with it in dev (runClient / runServer / runGametest).
+	modCompileOnly "com.sk89q.worldedit:worldedit-fabric-mc1.21:${project.worldedit_version}"
+	modLocalRuntime "com.sk89q.worldedit:worldedit-fabric-mc1.21:${project.worldedit_version}"
 
 	// Build-script sandbox (stage 3). No transitive dependencies.
 	implementation "org.mozilla:rhino:${project.rhino_version}"

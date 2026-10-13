@@ -94,3 +94,15 @@ GameTest 直接调用 API 处理器，不需要网络；检测到 `-Dfabric-api.
 ## D17. 单人游戏暂停时任务不推进，只提示不绕过（阶段 4）
 
 单人游戏在暂停菜单打开时不执行服务器 tick（`IntegratedServer.tickPaused`），任务不推进，方块变化也不会同步给客户端；默认设置下窗口失焦（例如切到 Claude）也会暂停。我们不 hook 暂停逻辑去强行推进（那需要绕过区块同步等原版流程），而是在 `world.getInfo` 中报告 `paused`，并在提交的任务对象和未完成的 `job.status` 中加 `warning`，提示玩家关闭菜单或按 F3+P 关闭"失焦暂停"。截图不受影响（在客户端线程执行）。
+
+## D18. WorldEdit 作为可选库集成（阶段 4 之后，按用户要求）
+
+**目的**：用户希望借助 WorldEdit 简化建造。WorldEdit 的价值主要在两处：社区大量现成的 `.schem` 原理图，以及成熟的图案（pattern）语法（`50%stone,50%andesite`、`##wool` 等）。
+
+**决定**：
+- WorldEdit 为可选依赖（`fabric.mod.json` 的 `suggests`），开发环境通过 `modLocalRuntime` 加载以便测试。未安装时一切照常，只是图案和原理图功能返回清晰的错误。
+- 只把 WorldEdit 当作"计算库"使用：解析图案、读写原理图文件。**所有放置仍走我们的任务队列**，因此撤销、预览、白名单、体积上限、方块黑名单都继续有效。不使用 WorldEdit 的 `EditSession` 直接写世界——那样会绕过我们的 ChangeSet，撤销不再可靠。
+- 所有 WorldEdit 类型只出现在 `WorldEditBridgeImpl` 中，通过反射创建；其他代码只依赖我们自己的 `WorldEditBridge` 接口，未安装 WorldEdit 时不会加载这些类。
+- 图案：`fill_region` 的 `block` 和脚本中 `b.set/fill/line/cylinder/sphere` 的方块参数，先按普通方块状态解析，失败且装有 WorldEdit 时按图案解析。图案每次产生的方块都过黑名单检查；由于图案是逐块求值的，黑名单方块会在执行时才被发现，任务以 `failed` 结束，已放置部分照常可撤销。
+- 原理图：`place_blueprint` 的 `schematic` 参数读取 WorldEdit 原理图目录（`config/worldedit/schematics`）中的 `.schem` / `.schematic`，转换成我们的蓝图后复用旋转/镜像逻辑；`save_blueprint` 的 `format: "schem"` 写出 Sponge v3 原理图。方块实体 NBT 暂不导入导出。
+- 顺带修复：`BlockStateParser` 解析到方块后会忽略后续文本（`stone,dirt` 被当成 `stone`），现在要求整个字符串都被消费，否则报 `1003`。

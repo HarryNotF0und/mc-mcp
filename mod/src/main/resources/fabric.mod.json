@@ -17,5 +17,8 @@
 		"minecraft": "~1.21.1",
 		"java": ">=21",
 		"fabric-api": "*"
+	},
+	"suggests": {
+		"worldedit": ">=7.3"
 	}
 }

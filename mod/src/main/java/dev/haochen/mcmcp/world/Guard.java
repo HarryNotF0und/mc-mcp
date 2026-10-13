@@ -12,6 +12,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
+import dev.haochen.mcmcp.worldedit.WorldEditBridge;
 
 /** Safety checks from {@code config/mcmcp.json}: region allowlist, volume cap, block blacklist. */
 public final class Guard {
@@ -68,7 +69,11 @@ public final class Guard {
 
 	/** Parses a block string and rejects blacklisted blocks (also error {@code 1003}). */
 	public BlockState block(String text) {
-		BlockState state = Blocks.parse(text);
+		return checkAllowed(Blocks.parse(text));
+	}
+
+	/** Error {@code 1003} if the state's block is blacklisted. */
+	public BlockState checkAllowed(BlockState state) {
 		String id = Blocks.id(state);
 		if (config.blockBlacklist.contains(id)) {
 			JsonObject data = new JsonObject();
@@ -76,6 +81,29 @@ public final class Guard {
 			throw new RpcException(RpcException.UNKNOWN_BLOCK, "block " + id + " is blacklisted", data);
 		}
 		return state;
+	}
+
+	/**
+	 * A block state, or with WorldEdit installed any WorldEdit pattern ({@code 50%stone,50%andesite},
+	 * {@code ##wool}, ...). Every block a pattern produces is checked against the blacklist.
+	 */
+	public BlockPattern pattern(String text) {
+		BlockState state;
+		try {
+			state = Blocks.parse(text);
+		} catch (RpcException notABlock) {
+			WorldEditBridge we = WorldEditBridge.get();
+			if (we == null) {
+				if (text.matches(".*[%,#^*].*")) {
+					throw new RpcException(notABlock.code(), notABlock.getMessage()
+							+ " (patterns like 50%stone,50%andesite need WorldEdit installed)", notABlock.data());
+				}
+				throw notABlock;
+			}
+			BlockPattern p = we.parsePattern(text);
+			return (x, y, z) -> checkAllowed(p.at(x, y, z));
+		}
+		return BlockPattern.of(checkAllowed(state));
 	}
 
 	/**

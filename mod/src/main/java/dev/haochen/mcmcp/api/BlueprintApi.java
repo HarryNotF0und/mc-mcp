@@ -1,11 +1,13 @@
 package dev.haochen.mcmcp.api;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.McMcpMod;
 import dev.haochen.mcmcp.Services;
 import dev.haochen.mcmcp.blueprint.Blueprint;
 import dev.haochen.mcmcp.net.RpcDispatcher;
 import dev.haochen.mcmcp.world.BlockList;
+import dev.haochen.mcmcp.worldedit.WorldEditBridge;
 import dev.haochen.mcmcp.world.Guard;
 import dev.haochen.mcmcp.world.LayerFormat;
 import dev.haochen.mcmcp.world.Region;
@@ -25,6 +27,28 @@ public final class BlueprintApi {
 	public static void register(RpcDispatcher dispatcher) {
 		dispatcher.onMainThread("build.placeBlueprint", BlueprintApi::placeBlueprint);
 		dispatcher.onMainThread("build.saveRegionAsBlueprint", BlueprintApi::saveRegion);
+		dispatcher.onMainThread("build.listBlueprints", (server, params) -> {
+			JsonObject o = new JsonObject();
+			JsonArray names = new JsonArray();
+			McMcpMod.services().blueprints().list().forEach(names::add);
+			o.add("blueprints", names);
+			WorldEditBridge we = WorldEditBridge.get();
+			if (we != null) {
+				JsonArray schematics = new JsonArray();
+				we.listSchematics().forEach(schematics::add);
+				o.add("schematics", schematics);
+			}
+			o.addProperty("worldEdit", we != null);
+			return o;
+		});
+	}
+
+	private static WorldEditBridge worldEdit(String feature) {
+		WorldEditBridge we = WorldEditBridge.get();
+		if (we == null) {
+			throw Params.invalid(feature + " needs WorldEdit installed on the server");
+		}
+		return we;
 	}
 
 	public static JsonObject placeBlueprint(MinecraftServer server, JsonObject params) {
@@ -53,10 +77,19 @@ public final class BlueprintApi {
 		} else if (Params.has(params, "name")) {
 			label = Params.string(params, "name");
 			json = s.blueprints().load(label);
+		} else if (Params.has(params, "schematic")) {
+			label = Params.string(params, "schematic");
+			json = null;
 		} else {
-			throw Params.invalid("pass either blueprint (the JSON object) or name (a saved blueprint)");
+			throw Params.invalid("pass blueprint (the JSON object), name (a saved blueprint) or schematic (a WorldEdit schematic file)");
 		}
-		Blueprint bp = Blueprint.parse(json, s.guard());
+		Blueprint bp;
+		if (json != null) {
+			bp = Blueprint.parse(json, s.guard());
+		} else {
+			bp = worldEdit("schematic").loadSchematic(label);
+			bp.states().forEach(s.guard()::checkAllowed);
+		}
 		BlockPos at;
 		if (Params.has(params, "origin")) {
 			at = Params.pos(params, "origin");
@@ -84,6 +117,20 @@ public final class BlueprintApi {
 			throw Params.invalid("y must be within build height");
 		}
 		Guard.checkChunks(level, region, Params.bool(params, "loadChunks", false));
+		String format = Params.string(params, "format", "json");
+		if (format.equals("schem")) {
+			if (!Params.has(params, "name")) {
+				throw Params.invalid("format schem needs a name");
+			}
+			Path file = worldEdit("format schem").saveSchematic(Params.string(params, "name"), level, region);
+			JsonObject o = new JsonObject();
+			o.addProperty("schematic", file.getFileName().toString());
+			o.addProperty("path", file.toAbsolutePath().toString());
+			o.add("size", Json.blockPos(new BlockPos(region.sizeX(), region.sizeY(), region.sizeZ())));
+			return o;
+		} else if (!format.equals("json")) {
+			throw Params.invalid("format must be json or schem");
+		}
 		JsonObject blueprint = LayerFormat.encode(level, region);
 		if (!Params.has(params, "name")) {
 			return blueprint;

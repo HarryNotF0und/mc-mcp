@@ -1,6 +1,7 @@
 package dev.haochen.mcmcp.world;
 
 import com.google.gson.JsonObject;
+import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.haochen.mcmcp.net.RpcException;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
@@ -15,7 +16,16 @@ public final class Blocks {
 	/** Parses a block state string. Unknown blocks or properties become error {@code 1003}. */
 	public static BlockState parse(String text) {
 		try {
-			return BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(), text, false).blockState();
+			StringReader reader = new StringReader(text);
+			BlockState state = BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(), reader, false).blockState();
+			// The parser stops after the block; "stone,dirt" must not silently become stone.
+			if (reader.canRead()) {
+				JsonObject data = new JsonObject();
+				data.addProperty("block", text);
+				throw new RpcException(RpcException.UNKNOWN_BLOCK, "invalid block '" + text
+						+ "': unexpected text after the block at position " + reader.getCursor(), data);
+			}
+			return state;
 		} catch (CommandSyntaxException e) {
 			JsonObject data = new JsonObject();
 			data.addProperty("block", text);

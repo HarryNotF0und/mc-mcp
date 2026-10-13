@@ -24,7 +24,8 @@ pub struct PlaceBlocksArgs {
 pub struct FillRegionArgs {
     /// Box to fill; both corners inclusive.
     pub region: Region,
-    /// Block state, e.g. "minecraft:stone_bricks" or "minecraft:oak_log[axis=x]".
+    /// Block state, e.g. "minecraft:stone_bricks" or "minecraft:oak_log[axis=x]". With WorldEdit
+    /// installed also any WorldEdit pattern, e.g. "50%minecraft:stone,30%minecraft:cobblestone,20%minecraft:andesite".
     pub block: String,
     /// "solid" (default): every block. "hollow": shell gets the block, interior becomes air.
     /// "outline": only the shell; the interior is left untouched.

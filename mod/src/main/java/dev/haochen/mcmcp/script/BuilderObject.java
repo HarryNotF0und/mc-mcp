@@ -2,6 +2,7 @@ package dev.haochen.mcmcp.script;
 
 import dev.haochen.mcmcp.net.RpcException;
 import dev.haochen.mcmcp.world.BlockList;
+import dev.haochen.mcmcp.world.BlockPattern;
 import dev.haochen.mcmcp.world.Blocks;
 import dev.haochen.mcmcp.world.Guard;
 import net.minecraft.core.BlockPos;
@@ -31,7 +32,8 @@ final class BuilderObject extends ScriptableObject {
 	private final WorldSnapshot world;
 	private final int maxBlocks;
 	private final BlockList blocks = new BlockList();
-	private final Map<String, BlockState> parsed = new HashMap<>();
+	private final Map<String, BlockPattern> parsed = new HashMap<>();
+	private static final BlockPattern AIR = BlockPattern.of(net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
 	private final List<String> logs = new ArrayList<>();
 	private int droppedLogs;
 
@@ -111,8 +113,15 @@ final class BuilderObject extends ScriptableObject {
 
 	// ---- operations (relative coordinates) ----
 
-	private void set(int x, int y, int z, BlockState state) {
-		blocks.put(origin.offset(x, y, z), state);
+	private void set(int x, int y, int z, BlockPattern pattern) {
+		BlockPos p = origin.offset(x, y, z);
+		BlockState state;
+		try {
+			state = pattern.at(p.getX(), p.getY(), p.getZ());
+		} catch (RpcException e) {
+			throw Context.reportRuntimeError(e.getMessage());
+		}
+		blocks.put(p, state);
 		if (blocks.size() > maxBlocks) {
 			throw Context.reportRuntimeError("script exceeded the limit of " + maxBlocks + " blocks");
 		}
@@ -131,7 +140,7 @@ final class BuilderObject extends ScriptableObject {
 		}
 	}
 
-	private void fill(int x1, int y1, int z1, int x2, int y2, int z2, BlockState state, String mode) {
+	private void fill(int x1, int y1, int z1, int x2, int y2, int z2, BlockPattern state, String mode) {
 		boolean hollow = mode.equals("hollow"), outline = mode.equals("outline");
 		if (!hollow && !outline && !mode.equals("solid")) {
 			throw Context.reportRuntimeError("fill mode must be \"solid\", \"hollow\" or \"outline\", got \"" + mode + "\"");
@@ -140,7 +149,7 @@ final class BuilderObject extends ScriptableObject {
 		int ay = Math.min(y1, y2), by = Math.max(y1, y2);
 		int az = Math.min(z1, z2), bz = Math.max(z1, z2);
 		checkVolume((long) (bx - ax + 1) * (by - ay + 1) * (bz - az + 1));
-		BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+		BlockPattern air = AIR;
 		for (int y = ay; y <= by; y++) {
 			for (int z = az; z <= bz; z++) {
 				for (int x = ax; x <= bx; x++) {
@@ -153,7 +162,7 @@ final class BuilderObject extends ScriptableObject {
 		}
 	}
 
-	private void line(int x1, int y1, int z1, int x2, int y2, int z2, BlockState state) {
+	private void line(int x1, int y1, int z1, int x2, int y2, int z2, BlockPattern state) {
 		int steps = Math.max(Math.abs(x2 - x1), Math.max(Math.abs(y2 - y1), Math.abs(z2 - z1)));
 		checkVolume(steps + 1L);
 		for (int s = 0; s <= steps; s++) {
@@ -163,7 +172,7 @@ final class BuilderObject extends ScriptableObject {
 	}
 
 	/** Vertical cylinder: base centre (x, y, z), {@code height} layers upwards. Diameter is 2 * radius + 1 for whole radii. */
-	private void cylinder(int x, int y, int z, double radius, int height, BlockState state, boolean hollow) {
+	private void cylinder(int x, int y, int z, double radius, int height, BlockPattern state, boolean hollow) {
 		if (radius < 0 || height < 1) {
 			throw Context.reportRuntimeError("cylinder needs radius >= 0 and height >= 1");
 		}
@@ -187,7 +196,7 @@ final class BuilderObject extends ScriptableObject {
 	}
 
 	/** Sphere centred on (x, y, z). Diameter is 2 * radius + 1 for whole radii. */
-	private void sphere(int x, int y, int z, double radius, BlockState state, boolean hollow) {
+	private void sphere(int x, int y, int z, double radius, BlockPattern state, boolean hollow) {
 		if (radius < 0) {
 			throw Context.reportRuntimeError("sphere needs radius >= 0");
 		}
@@ -232,21 +241,21 @@ final class BuilderObject extends ScriptableObject {
 		}
 	}
 
-	private BlockState block(Object arg) {
+	private BlockPattern block(Object arg) {
 		if (!(arg instanceof CharSequence)) {
 			throw Context.reportRuntimeError("block must be a string like \"minecraft:stone\", got " + Context.toString(arg));
 		}
 		String text = arg.toString();
-		BlockState state = parsed.get(text);
-		if (state == null) {
+		BlockPattern pattern = parsed.get(text);
+		if (pattern == null) {
 			try {
-				state = guard.block(text);
+				pattern = guard.pattern(text);
 			} catch (RpcException e) {
 				throw Context.reportRuntimeError(e.getMessage());
 			}
-			parsed.put(text, state);
+			parsed.put(text, pattern);
 		}
-		return state;
+		return pattern;
 	}
 
 	private static int i(Object arg) {

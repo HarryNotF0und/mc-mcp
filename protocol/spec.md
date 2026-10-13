@@ -51,7 +51,8 @@
 - 坐标：整数世界坐标数组 `[x, y, z]`，y 向上；北为 -z，东为 +x。
 - 区域：`{"min":[x,y,z],"max":[x,y,z]}`，两端都包含；两个角的顺序任意，模组会归一化。
 - 维度：参数 `dimension`，带命名空间的 ID，默认 `minecraft:overworld`。
-- 方块：游戏原生方块状态字符串，例如 `minecraft:oak_stairs[facing=north,half=bottom]`；未写的属性取默认值。
+- 方块：游戏原生方块状态字符串，例如 `minecraft:oak_stairs[facing=north,half=bottom]`；未写的属性取默认值。整个字符串必须是一个方块，多余文本报 `1003`。
+- 图案（需要服务器装有 WorldEdit）：`world.fillRegion` 的 `block` 与脚本 `b.*` 的方块参数也可以是 WorldEdit 图案，例如 `50%minecraft:stone,50%minecraft:andesite`。图案逐块求值，每个结果都过黑名单检查；执行中遇到黑名单方块时任务 `failed`。
 - `loadChunks`（读写方法通用，默认 `false`）：为 `false` 时区域内有未加载区块则返回 `1004`；为 `true` 时同步加载（必要时生成）这些区块。
 - 分层格式（感知输出与阶段 3 蓝图输入共用）：
 
@@ -250,8 +251,8 @@
 
 ### `build.placeBlueprint`
 
-- params：`{"blueprint"?: 分层格式 | "name"?: string, "origin"?: [x,y,z], "rotation"?: 0|90|180|270, "mirror"?: "none"|"x"|"z", "skipAir"?: false, "dryRun"?: false, "dimension"?, "loadChunks"?}`
-  - `blueprint` 与 `name`（`build.saveRegionAsBlueprint` 保存的名字）二选一。
+- params：`{"blueprint"?: 分层格式 | "name"?: string | "schematic"?: string, "origin"?: [x,y,z], "rotation"?: 0|90|180|270, "mirror"?: "none"|"x"|"z", "skipAir"?: false, "dryRun"?: false, "dimension"?, "loadChunks"?}`
+  - `blueprint`、`name`（`build.saveRegionAsBlueprint` 保存的名字）、`schematic`（WorldEdit 原理图目录中的文件名，可省略扩展名；需要 WorldEdit）三选一。
   - `origin` 默认取蓝图自带的 `origin`；放置后变换后包围盒的最小角落在 `origin`。
   - 先镜像再旋转。`rotation` 为俯视顺时针（90 度时北变东）：`(x, z) -> (sz-1-z, x)`；180：`(sx-1-x, sz-1-z)`；270：`(z, sx-1-x)`。`mirror: "x"` 翻转 x（东西互换），`"z"` 翻转 z（南北互换）。
   - 方块状态用游戏的 `BlockState.mirror/rotate` 同步变换（`facing`、`axis`、`rotation`、铁轨形状等）。
@@ -261,7 +262,8 @@
 
 ### `build.saveRegionAsBlueprint`
 
-- params：`{"region": {...}, "name"?: string, "dimension"?, "loadChunks"?}`；体积上限 `maxVolumePerOp`。
+- params：`{"region": {...}, "name"?: string, "format"?: "json" | "schem", "dimension"?, "loadChunks"?}`；体积上限 `maxVolumePerOp`。
+- `format: "schem"`（需要 WorldEdit 和 `name`）：写出 Sponge v3 原理图到 WorldEdit 原理图目录，result 为 `{"schematic": 文件名, "path", "size"}`。
 - 无 `name`：result 为分层格式（`origin` 为区域最小角）。
 - 有 `name`（`[a-z0-9_-]{1,64}`）：保存到 `<游戏目录>/mcmcp/blueprints/<name>.json`，result 为 `{"name", "path", "origin", "size", "paletteSize"}`。
 - 方块实体 NBT 不导出。
@@ -305,3 +307,10 @@
 - params：`{"region": {...}, "count"?: 4, "pitch"?: 30, "distance"?, "width"?, "height"?, "fov"?, "daylight"?}`；`count` 1–8。
 - 相机围绕区域中心等角度分布、俯角 `pitch`，默认距离使整个包围盒落在视野内。`count = 4` 时依次为 `from north` / `from east` / `from south` / `from west`。
 - result：同 `view.screenshot`，`shots` 有 `count` 项。
+
+### `build.listBlueprints`
+
+- params：`{}`
+- result：`{"blueprints": [名字...], "schematics"?: [文件名...], "worldEdit": bool}`（`schematics` 仅在装有 WorldEdit 时出现）。
+
+`world.getInfo` 在装有 WorldEdit 时额外返回 `"worldEdit": 版本号`。

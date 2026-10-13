@@ -46,6 +46,22 @@ public final class BlueprintStore {
 		}
 	}
 
+	/** Saved blueprint names, sorted. */
+	public java.util.List<String> list() {
+		if (!Files.isDirectory(dir)) {
+			return java.util.List.of();
+		}
+		try (var files = Files.list(dir)) {
+			return files.map(p -> p.getFileName().toString())
+					.filter(n -> n.endsWith(".json"))
+					.map(n -> n.substring(0, n.length() - 5))
+					.sorted()
+					.toList();
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
 	private Path file(String name) {
 		if (!NAME.matcher(name).matches()) {
 			throw Params.invalid("blueprint names may only contain a-z, 0-9, _ and - (max 64)");

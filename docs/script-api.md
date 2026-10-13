@@ -27,6 +27,9 @@ Rhino supports most of ES5 and part of ES6. Stick to this subset:
 - Non-integer coordinates are floored (`1.7` -> `1`, `-0.5` -> `-1`).
 - Blocks use game syntax: `"minecraft:stone_bricks"`, `"minecraft:oak_stairs[facing=north,half=top]"`.
   Unspecified properties take their default values.
+- If the server has WorldEdit installed, every block argument can also be a WorldEdit pattern,
+  e.g. `"60%minecraft:stone_bricks,25%minecraft:mossy_stone_bricks,15%minecraft:cracked_stone_bricks"`
+  for weathered walls. `get_world_info` reports `worldEdit` when it is available.
 
 ## Functions
 

@@ -51,3 +51,12 @@
 - [ ] `discard_preview` 后游戏内恢复原貌；`confirm_preview` 后真实放置，`undo` 可撤销。
 - [ ] 让 AI 建一个有明显错误的建筑（如一侧屋顶楼梯朝向反了），只给它 `orbit_shots`：它应能指出错误并修正。
 - [ ] 暂停游戏（Esc）后提交任务：返回带 `warning`；`get_world_info` 的 `paused` 为 `true`；关闭菜单后任务完成。
+
+## WorldEdit 集成（服务器装有 WorldEdit 7.3.x）
+
+- [ ] 自动化：`runGametest` 中 `WorldEditGameTests` 通过（图案填充、图案中的黑名单方块使任务失败、`.schem` 保存后旋转放置）。
+- [ ] `get_world_info` 返回 `worldEdit` 版本。
+- [ ] `fill_region` 用 `60%minecraft:stone_bricks,25%minecraft:mossy_stone_bricks,15%minecraft:cracked_stone_bricks`：截图中三种砖混杂；`undo` 可撤销。
+- [ ] `save_blueprint` 带 `format: "schem"`；在游戏中用 `//schem load <名字>` 和 `//paste` 能读出同样的结构（与 WorldEdit 互通）。
+- [ ] 把下载的 `.schem` 放到 `config/worldedit/schematics/`，`list_blueprints` 能列出，`place_blueprint` 带 `schematic` 能放置并旋转。
+- [ ] 不装 WorldEdit 时：图案返回 `1003` 并提示需要 WorldEdit；其余功能不受影响。

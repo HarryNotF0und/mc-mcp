@@ -5,7 +5,7 @@
 	"name": "MC-MCP GameTests",
 	"environment": "*",
 	"entrypoints": {
-		"fabric-gametest": ["dev.haochen.mcmcp.gametest.McMcpGameTests", "dev.haochen.mcmcp.gametest.ScriptBlueprintGameTests"]
+		"fabric-gametest": ["dev.haochen.mcmcp.gametest.McMcpGameTests", "dev.haochen.mcmcp.gametest.ScriptBlueprintGameTests", "dev.haochen.mcmcp.gametest.WorldEditGameTests"]
 	},
 	"depends": {
 		"mcmcp": "*",
