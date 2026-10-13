@@ -1,7 +1,9 @@
 package dev.haochen.mcmcp;
 
+import dev.haochen.mcmcp.api.BlueprintApi;
 import dev.haochen.mcmcp.api.BuildApi;
 import dev.haochen.mcmcp.api.JobApi;
+import dev.haochen.mcmcp.api.ScriptApi;
 import dev.haochen.mcmcp.api.SystemApi;
 import dev.haochen.mcmcp.api.WorldApi;
 import dev.haochen.mcmcp.net.McWebSocketServer;
@@ -48,7 +50,7 @@ public class McMcpMod implements ModInitializer {
 	private static void onServerStarted(MinecraftServer server) {
 		// Re-read on every server start so edits apply without restarting the game.
 		McMcpConfig config = McMcpConfig.loadOrCreate(FabricLoader.getInstance().getConfigDir().resolve("mcmcp.json"));
-		services = Services.create(config, (method, params) -> {
+		services = Services.create(config, FabricLoader.getInstance().getGameDir(), (method, params) -> {
 			if (wsServer != null) {
 				wsServer.notifyAll(method, params);
 			}
@@ -59,6 +61,8 @@ public class McMcpMod implements ModInitializer {
 		WorldApi.register(dispatcher);
 		BuildApi.register(dispatcher);
 		JobApi.register(dispatcher);
+		ScriptApi.register(dispatcher);
+		BlueprintApi.register(dispatcher);
 
 		if (System.getProperty("fabric-api.gametest") != null) {
 			// GameTests call the API directly; don't fight a running dev server for the port.
@@ -77,6 +81,9 @@ public class McMcpMod implements ModInitializer {
 			}
 			wsServer = null;
 		}
-		services = null;
+		if (services != null) {
+			services.shutdown();
+			services = null;
+		}
 	}
 }

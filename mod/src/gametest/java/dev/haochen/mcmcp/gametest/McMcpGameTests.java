@@ -172,7 +172,7 @@ public class McMcpGameTests implements FabricGameTest {
 		helper.succeed();
 	}
 
-	private static void allowEverywhere() {
+	static void allowEverywhere() {
 		McMcpConfig config = McMcpMod.services().config();
 		config.allowedRegions = List.of(new McMcpConfig.Region("minecraft:overworld",
 				new int[]{-29_000_000, -64, -29_000_000}, new int[]{29_000_000, 319, 29_000_000}));
@@ -196,7 +196,7 @@ public class McMcpGameTests implements FabricGameTest {
 		return McMcpMod.services().jobs().submit(job).id();
 	}
 
-	private static void assertDone(GameTestHelper helper, int id) {
+	static void assertDone(GameTestHelper helper, int id) {
 		Job job = McMcpMod.services().jobs().get(id);
 		if (!job.state().finished()) {
 			throw new GameTestAssertException("job " + id + " still " + job.state().id());
@@ -204,7 +204,7 @@ public class McMcpGameTests implements FabricGameTest {
 		helper.assertTrue(job.state() == Job.State.DONE, "job finished: " + job.toJson());
 	}
 
-	private static void expectCode(GameTestHelper helper, int code, Supplier<?> call) {
+	static void expectCode(GameTestHelper helper, int code, Supplier<?> call) {
 		try {
 			call.get();
 		} catch (RpcException e) {

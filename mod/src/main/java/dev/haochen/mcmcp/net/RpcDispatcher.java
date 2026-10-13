@@ -15,7 +15,13 @@ import java.util.concurrent.CompletionException;
  * server thread; the network thread only queues them and sends the result when it completes.
  */
 public final class RpcDispatcher {
-	private record Entry(RpcHandler handler, boolean mainThread) {
+	/** A handler that starts work elsewhere (e.g. a worker thread) and completes later. */
+	@FunctionalInterface
+	public interface AsyncHandler {
+		CompletableFuture<JsonElement> handle(MinecraftServer server, JsonObject params) throws RpcException;
+	}
+
+	private record Entry(RpcHandler handler, boolean mainThread, AsyncHandler async) {
 	}
 
 	private final MinecraftServer server;
@@ -27,13 +33,22 @@ public final class RpcDispatcher {
 
 	/** Registers a handler that touches game state and therefore must run on the server thread. */
 	public RpcDispatcher onMainThread(String method, RpcHandler handler) {
-		handlers.put(method, new Entry(handler, true));
+		handlers.put(method, new Entry(handler, true, null));
 		return this;
 	}
 
 	/** Registers a handler that is safe to run directly on the network thread. */
 	public RpcDispatcher onNetworkThread(String method, RpcHandler handler) {
-		handlers.put(method, new Entry(handler, false));
+		handlers.put(method, new Entry(handler, false, null));
+		return this;
+	}
+
+	/**
+	 * Registers a handler that is called on the network thread and returns a future. It must not
+	 * touch game state directly; use {@code server.submit} for that.
+	 */
+	public RpcDispatcher async(String method, AsyncHandler handler) {
+		handlers.put(method, new Entry(null, false, handler));
 		return this;
 	}
 
@@ -42,6 +57,13 @@ public final class RpcDispatcher {
 		if (entry == null) {
 			return CompletableFuture.failedFuture(
 					new RpcException(RpcException.METHOD_NOT_FOUND, "unknown method: " + method));
+		}
+		if (entry.async() != null) {
+			try {
+				return entry.async().handle(server, params);
+			} catch (Throwable t) {
+				return CompletableFuture.failedFuture(t);
+			}
 		}
 		if (!entry.mainThread()) {
 			try {

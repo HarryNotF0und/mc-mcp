@@ -234,3 +234,33 @@
 - 撤销按记录的逆序精确恢复修改前的方块状态和 NBT；重做按顺序恢复修改后的状态。新的写操作会清空重做栈。最多保留 `historySize`（默认 50）个 ChangeSet；历史只保存在内存中，服务器关闭后清空。
 - 无可撤销/重做内容时任务以 `failed` 结束，`error` 为 `nothing to undo` / `nothing to redo`。
 - result：任务对象。
+
+### `build.runScript`
+
+在独立的脚本线程上用 Rhino 执行 JavaScript（API 见 `docs/script-api.md`），完成后回到主线程把结果作为一个写任务提交。
+
+- params：`{"source": string, "origin": [x,y,z], "dryRun"?: false, "dimension"?, "loadChunks"?}`
+- 脚本内坐标相对于 `origin`。`b.get` 读取世界时，每个区块第一次读取会在主线程复制该区块的方块调色板。
+- 限制：`scriptTimeoutMs`（默认 5000）、最多 `maxVolumePerOp` 个方块、`ClassShutter` 拒绝所有 Java 类、不提供 LiveConnect；循环体内的 `const` 在执行前被拒绝（见 decisions D11）。
+- result：
+  - `dryRun = true`：`{"dryRun": true, "blocks": n, "bounds": {...}, "counts": [{"block","count"}...], "otherStates"?, "logs": [...], "scriptMs": n}`（`counts` 按方块状态统计，前 20 种）。
+  - 否则：任务对象，另带 `"script": {同上统计}`。
+- 错误：`1006`，`data` 为 `{"line"?: n, "message": string, "logs"?: [...]}`；结果超出白名单/体积/黑名单时为 `1001` / `1002` / `1003`；脚本未产生任何方块时 `-32602`。
+
+### `build.placeBlueprint`
+
+- params：`{"blueprint"?: 分层格式 | "name"?: string, "origin"?: [x,y,z], "rotation"?: 0|90|180|270, "mirror"?: "none"|"x"|"z", "skipAir"?: false, "dryRun"?: false, "dimension"?, "loadChunks"?}`
+  - `blueprint` 与 `name`（`build.saveRegionAsBlueprint` 保存的名字）二选一。
+  - `origin` 默认取蓝图自带的 `origin`；放置后变换后包围盒的最小角落在 `origin`。
+  - 先镜像再旋转。`rotation` 为俯视顺时针（90 度时北变东）：`(x, z) -> (sz-1-z, x)`；180：`(sx-1-x, sz-1-z)`；270：`(z, sx-1-x)`。`mirror: "x"` 翻转 x（东西互换），`"z"` 翻转 z（南北互换）。
+  - 方块状态用游戏的 `BlockState.mirror/rotate` 同步变换（`facing`、`axis`、`rotation`、铁轨形状等）。
+  - `skipAir = true` 时不放置蓝图中的空气。
+- result：`dryRun` 时为统计信息（同 `runScript` 的统计，无 `logs`），否则为任务对象。
+- 错误：`-32602`（格式错误：调色板键不是单字符、行长度不一致、未知字符、`size` 不符、名字不存在等）、`1003`、`1001`、`1002`、`1004`。
+
+### `build.saveRegionAsBlueprint`
+
+- params：`{"region": {...}, "name"?: string, "dimension"?, "loadChunks"?}`；体积上限 `maxVolumePerOp`。
+- 无 `name`：result 为分层格式（`origin` 为区域最小角）。
+- 有 `name`（`[a-z0-9_-]{1,64}`）：保存到 `<游戏目录>/mcmcp/blueprints/<name>.json`，result 为 `{"name", "path", "origin", "size", "paletteSize"}`。
+- 方块实体 NBT 不导出。

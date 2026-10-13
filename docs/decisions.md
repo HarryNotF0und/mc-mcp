@@ -57,3 +57,23 @@ PLAN 中错误码 `1004` 表示区块未加载。只有出生点附近或玩家�
 ## D10. GameTest 不启动 WebSocket（阶段 2）
 
 GameTest 直接调用 API 处理器，不需要网络；检测到 `-Dfabric-api.gametest` 时不监听端口，以免与正在运行的开发服务器抢占 25580。GameTest 放在独立的 `gametest` source set（独立 mod `mcmcp-gametest`），不会打进发布 jar。
+
+## D11. 脚本：Rhino 的 `const` 作用域问题直接报错（阶段 3）
+
+**背景**：Rhino 1.9.1 中 `let` / `const` 实际上按函数作用域处理。循环体内的 `const x = ...` 只在第一次迭代赋值，之后静默保留旧值（解构形式则报 "redeclaration"）。验收测试中示例脚本因此静默地建错了结构。AI 写脚本时极易使用这种写法。
+
+**决定**：执行前用 Rhino 的 `Parser` 解析出 AST，若有 `const` 声明位于同一函数内的循环体中，直接返回 `1006` 并给出行号和"用 let 代替"的提示。`docs/script-api.md` 列出了该引擎支持/不支持的语法（`for (const v of ...)`、`class`、展开运算符不可用）。语言版本设为 `VERSION_ECMASCRIPT`，错误信息固定为英文（`Locale.ENGLISH`），不随系统区域变化。
+
+## D12. 脚本在独立线程执行，读世界通过区块快照（阶段 3）
+
+脚本最长运行 5 秒，放在主线程会让服务器卡住 5 秒，因此在单独的 `mcmcp-script` 线程执行（串行，一次一个脚本）。`b.get` 第一次访问某个区块时，用 `server.submit` 在主线程复制该区块各 section 的 `PalettedContainer`，之后在脚本线程本地读取；脚本自己 `set` 过的位置优先返回脚本中的值。脚本结束后在主线程做白名单/体积检查并提交任务。
+
+时限由指令计数观察器（每 10000 条指令）检查墙钟时间，超时抛出 `Error` 子类，脚本中的 `try/catch` 捕获不到；行号通过 `Context.reportRuntimeError` 取得。Rhino 没有内存限制，脚本若在 5 秒内分配大量内存仍可能影响服务器，这一风险目前接受（只监听本机且需要 token）。
+
+## D13. 蓝图可按名字保存在服务器上（阶段 3）
+
+`build.saveRegionAsBlueprint` 返回完整 JSON 时，大区域会占用大量模型上下文。增加可选 `name`：保存到 `<游戏目录>/mcmcp/blueprints/`，只返回摘要；`build.placeBlueprint` 可按 `name` 读取。小区域仍可直接返回 JSON，便于 AI 查看和修改。蓝图不包含方块实体 NBT。
+
+## D14. Bridge 的 `run_script` 支持 `sourceFile`（阶段 3）
+
+`run_script` 可传 `sourceFile`（bridge 所在机器上的路径），由 bridge 读取后作为 `source` 发送，方便直接运行 `examples/scripts/` 中的脚本或 AI 先写入文件再执行。协议层仍只有 `source`。

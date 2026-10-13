@@ -31,3 +31,13 @@
 - [ ] `fill_region` 填充 100 × 20 × 100（`loadChunks: true`），之后立即 `get_world_info`：`mspt` 远低于 50，游戏内无明显卡顿；然后 `undo`。
 - [ ] 错误码：白名单外 `1001`；300000 格 `1002`；`minecraft:tnt` 和拼错的方块 `1003`；远处未加载区块不带 `loadChunks` 时 `1004`；`job_status` 不存在的 id `1005`；`place_blocks` 4097 项 `-32602`。
 - [ ] 一个大填充进行中调用 `cancel_job`：已放置部分保留，`undo` 能撤销这部分。
+
+## 阶段 3
+
+- [ ] 自动化：`./gradlew runGametest` 全部通过（圆柱尺寸、死循环超时行号、禁止 Java、循环内 const 报错、蓝图旋转/镜像及朝向、格式错误）。
+- [ ] Bridge 资源：`resources/list` 含 `mc://world/info`、`mc://history`、`mc://jobs`、`mc://docs/script-api`；模板 `mc://player/{name}`；`prompts/list` 含 `build_assistant`。
+- [ ] `run_script` + `sourceFile: "examples/scripts/tower.js"`，先 `dryRun`（约 5500 块，包围盒 15 × 31 × 15），再实际执行。游戏内检查：直径 15、高 30、螺旋楼梯可以一路走到顶层平台、垛口、门洞和窗。
+- [ ] `arch-bridge.js` 和 `cottage.js` 同样执行并在游戏内检查（拱形、栏杆、台阶；坡屋顶两侧楼梯朝向正确、门两半齐全）。
+- [ ] 死循环脚本：约 5 秒后返回 `1006`，带循环所在行号；服务器不卡顿（期间 `get_world_info` 的 mspt 正常）。
+- [ ] 建一个带楼梯、原木、门的小结构，`save_blueprint` 带 `name`，再 `place_blueprint` 旋转 90° 放到别处：位置与楼梯朝向、原木轴向、门都正确。
+- [ ] 全部 `undo` 恢复。

@@ -3,6 +3,7 @@
 
 mod build;
 mod jobs;
+mod scripts;
 mod system;
 mod world;
 
@@ -10,13 +11,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
-use rmcp::{ServerHandler, schemars, tool_handler};
+use rmcp::model::{
+    CallToolResult, ContentBlock, GetPromptRequestParams, GetPromptResponse, Implementation,
+    ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, PaginatedRequestParams,
+    ReadResourceRequestParams, ReadResourceResponse, ServerCapabilities, ServerConfig,
+};
+use rmcp::service::RequestContext;
+use rmcp::{ErrorData, RoleServer, ServerHandler, schemars, tool_handler};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::mc_client::{McClient, McError};
+use crate::resources;
 
 const INSTRUCTIONS: &str = "Controls a running Minecraft world through the mc-mcp mod. \
 Coordinates are integer world coordinates [x, y, z]; y is up; north is -z, east is +x. \
@@ -49,7 +56,8 @@ impl McServer {
             tool_router: Self::system_router()
                 + Self::world_router()
                 + Self::build_router()
-                + Self::jobs_router(),
+                + Self::jobs_router()
+                + Self::scripts_router(),
         }
     }
 
@@ -122,9 +130,55 @@ pub fn to_tool_result(result: Result<Value, McError>) -> CallToolResult {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for McServer {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+        ServerConfig::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
+        )
             .with_server_info(Implementation::new("mc-mcp-bridge", env!("CARGO_PKG_VERSION")))
             .with_instructions(INSTRUCTIONS)
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        Ok(ListResourcesResult::with_all_items(resources::list()))
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        Ok(ListResourceTemplatesResult::with_all_items(resources::templates()))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        Ok(resources::read(&self.mc, &request.uri).await?.into())
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        Ok(ListPromptsResult::with_all_items(resources::prompts()))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, ErrorData> {
+        Ok(resources::get_prompt(&request.name)?.into())
     }
 }
 

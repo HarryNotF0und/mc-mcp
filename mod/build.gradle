@@ -58,6 +58,10 @@ dependencies {
 		transitive = false
 	}
 	include("org.java-websocket:Java-WebSocket:${project.java_websocket_version}")
+
+	// Build-script sandbox (stage 3). No transitive dependencies.
+	implementation "org.mozilla:rhino:${project.rhino_version}"
+	include "org.mozilla:rhino:${project.rhino_version}"
 }
 
 processResources {
