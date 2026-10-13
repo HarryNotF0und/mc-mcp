@@ -1,6 +1,7 @@
 //! MCP tools. Each submodule contributes one `#[tool_router]` block to [`McServer`];
 //! [`McServer::new`] merges them.
 
+mod agent;
 mod build;
 mod jobs;
 mod scripts;
@@ -32,7 +33,7 @@ Regions are {\"min\":[x,y,z],\"max\":[x,y,z]} with both corners inclusive. \
 Recommended workflow (also available as the build_assistant prompt): get_player_state / get_area_summary \
 to find the site, get_layer_slices to inspect it, then build with run_script (read mc://docs/script-api first; \
 use dryRun or preview), fill_region or place_blocks, check the result with orbit_shots / screenshot \
-(single-player), and undo if it is wrong.";
+(single-player), and undo if it is wrong. For survival play without god-mode tools, spawn a fake player with agent_spawn and use the agent_* tools.";
 
 /// An axis-aligned box of blocks; both corners are inclusive.
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
@@ -61,7 +62,8 @@ impl McServer {
                 + Self::build_router()
                 + Self::jobs_router()
                 + Self::scripts_router()
-                + Self::view_router(),
+                + Self::view_router()
+                + Self::agent_router(),
         }
     }
 
@@ -76,7 +78,16 @@ impl McServer {
         to_tool_result(self.call_job(method, params).await)
     }
 
+    /// Like [`Self::forward_job`] but waits at least `wait` (agent actions take longer than builds).
+    async fn forward_job_waiting(&self, method: &str, params: Value, wait: Duration) -> CallToolResult {
+        to_tool_result(self.call_job_waiting(method, params, wait.max(self.job_wait)).await)
+    }
+
     async fn call_job(&self, method: &str, params: Value) -> Result<Value, McError> {
+        self.call_job_waiting(method, params, self.job_wait).await
+    }
+
+    async fn call_job_waiting(&self, method: &str, params: Value, job_wait: Duration) -> Result<Value, McError> {
         // Subscribe before submitting so the finish notification cannot be missed.
         let mut notes = self.mc.subscribe();
         let submitted = self.mc.call(method, params).await?;
@@ -97,7 +108,7 @@ impl McServer {
                 }
             }
         };
-        let finished = match tokio::time::timeout(self.job_wait, wait).await {
+        let finished = match tokio::time::timeout(job_wait, wait).await {
             Ok(Some(done)) => done,
             Ok(None) | Err(_) => {
                 let mut status = self.mc.call("job.status", json!({ "jobId": job_id })).await?;

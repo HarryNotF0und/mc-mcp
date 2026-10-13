@@ -78,6 +78,9 @@ public final class WorldApi {
 			p.addProperty("uuid", player.getStringUUID());
 			p.addProperty("dimension", player.level().dimension().location().toString());
 			p.add("pos", Json.blockPos(player.blockPosition()));
+			if (player instanceof dev.haochen.mcmcp.agent.AgentPlayer) {
+				p.addProperty("agent", true);
+			}
 			players.add(p);
 		}
 		result.add("players", players);

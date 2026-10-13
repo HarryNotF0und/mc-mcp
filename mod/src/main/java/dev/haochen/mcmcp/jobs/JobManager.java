@@ -25,6 +25,7 @@ public final class JobManager {
 	private final int blocksPerTick;
 	private final BiConsumer<String, JsonObject> notifier;
 	private final Deque<Job> queue = new ArrayDeque<>();
+	private final java.util.List<Job> parallel = new java.util.ArrayList<>();
 	private final Map<Integer, Job> jobs = new LinkedHashMap<>();
 	private @Nullable Job current;
 	private int nextId = 1;
@@ -37,9 +38,13 @@ public final class JobManager {
 
 	public Job submit(Job job) {
 		job.id = nextId++;
-		queue.addLast(job);
 		jobs.put(job.id, job);
 		pruneFinished();
+		if (job.parallel()) {
+			parallel.add(job);
+		} else {
+			queue.addLast(job);
+		}
 		return job;
 	}
 
@@ -60,6 +65,11 @@ public final class JobManager {
 			current = null;
 			job.onAborted(server);
 			finish(job, Job.State.CANCELLED, null);
+		} else if (parallel.remove(job)) {
+			if (job.state() == Job.State.RUNNING) {
+				job.onAborted(server);
+			}
+			finish(job, Job.State.CANCELLED, null);
 		}
 		return job;
 	}
@@ -71,6 +81,7 @@ public final class JobManager {
 	}
 
 	public void tick(MinecraftServer server) {
+		tickParallel(server);
 		int budget = blocksPerTick;
 		while (budget > 0) {
 			if (current == null && !startNext(server)) {
@@ -95,6 +106,32 @@ public final class JobManager {
 		if (current != null && ++ticksSinceProgress >= PROGRESS_EVERY_TICKS) {
 			ticksSinceProgress = 0;
 			notifier.accept("job.progress", current.toJson());
+		}
+	}
+
+	private void tickParallel(MinecraftServer server) {
+		for (Job job : java.util.List.copyOf(parallel)) {
+			try {
+				if (job.state() == Job.State.QUEUED) {
+					job.markStarted();
+					job.start(server);
+				}
+				job.step(server, 1);
+				if (job.isComplete()) {
+					parallel.remove(job);
+					job.onDone(server);
+					finish(job, Job.State.DONE, null);
+				} else if (server.getTickCount() % PROGRESS_EVERY_TICKS == 0) {
+					notifier.accept("job.progress", job.toJson());
+				}
+			} catch (RuntimeException e) {
+				parallel.remove(job);
+				if (!(e instanceof RpcException)) {
+					McMcpMod.LOGGER.error("Job {} failed", job.id(), e);
+				}
+				job.onAborted(server);
+				finish(job, Job.State.FAILED, e.getMessage());
+			}
 		}
 	}
 

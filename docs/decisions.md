@@ -106,3 +106,20 @@ GameTest 直接调用 API 处理器，不需要网络；检测到 `-Dfabric-api.
 - 图案：`fill_region` 的 `block` 和脚本中 `b.set/fill/line/cylinder/sphere` 的方块参数，先按普通方块状态解析，失败且装有 WorldEdit 时按图案解析。图案每次产生的方块都过黑名单检查；由于图案是逐块求值的，黑名单方块会在执行时才被发现，任务以 `failed` 结束，已放置部分照常可撤销。
 - 原理图：`place_blueprint` 的 `schematic` 参数读取 WorldEdit 原理图目录（`config/worldedit/schematics`）中的 `.schem` / `.schematic`，转换成我们的蓝图后复用旋转/镜像逻辑；`save_blueprint` 的 `format: "schem"` 写出 Sponge v3 原理图。方块实体 NBT 暂不导入导出。
 - 顺带修复：`BlockStateParser` 解析到方块后会忽略后续文本（`stone,dirt` 被当成 `stone`），现在要求整个字符串都被消费，否则报 `1003`。
+
+## D19. 假玩家：`ServerPlayer` 子类 + 假连接，自己跑移动物理（阶段 5）
+
+- 参照 Carpet 的做法：`AgentPlayer extends ServerPlayer`，通过 `PlayerList.placeNewPlayer` 用 `FakeConnection` 加入。`FakeConnection` 覆盖所有会触碰 netty channel 的方法（`send`、`flushChannel`、`tick`、`setupInbound/OutboundProtocol`、`setupCompression`、`setReadOnly`、`disconnect`、`handleDisconnection`），测试中漏掉 `flushChannel` 曾导致服务器崩溃。
+- 真实玩家的移动由客户端模拟；假玩家没有客户端，所以在 `tick()` 中额外调用 `doTick()` 执行移动物理，并每 10 tick 更新区块加载。移动通过设置 `zza`（前进）、朝向和跳跃输入实现，而不是直接传送，因此碰撞、重力、摔落伤害都是真实的。
+- 放置方块：检查触及距离、目标可替换、有可依附面、方块能存活，消耗物品后直接 `setBlock` 精确状态（而不是模拟右键使用物品，后者的朝向取决于视角，不利于按蓝图建造）。
+- 合成：直接用配方表和背包，不打开 GUI；超过 2×2 的配方要求附近有工作台。
+- 假玩家不受建造白名单限制：它只能做生存玩家能做的事（要材料、要时间、会受伤）。
+
+## D20. 寻路：自研 A*（含挖掘），不集成 Baritone（阶段 5）
+
+PLAN 建议在需要更强寻路时评估 Baritone。Baritone 是客户端 mod，依赖客户端玩家和输入系统，不能驱动服务器端的假玩家，因此不集成。实测中只会行走/跳跃/下落的 A* 在真实地形中会被困住（掉进无法爬出的洞穴、站在巨型蘑菇或树冠上），所以扩展了自研 A*：
+- 允许挖穿、挖台阶向上、向下挖一格，代价为该方块用最佳工具的真实挖掘时间（`ticks / 5` 换算成行走格数）。
+- 安全限制：不挖流体旁、会下落的方块及其下方、方块实体、基岩、超过 5 秒（100 tick）才能挖掉的方块；下落最多 4 格（半颗心）。
+- `agent.goto` 默认不挖（避免破坏地形），`mineBlock` / `gather` / `buildBlueprint` 默认可挖。
+- 工具耐久：选择工具时，若工具对该方块没有加速，则优先空手或非工具物品（实测中木镐被拿去挖泥土而耗尽）。
+- 采集判断：原版战利品表对石头总是列出圆石，"需要镐"的规则在破坏时单独判断；因此判断掉落时额外检查 `requiresCorrectToolForDrops`。没有这一步时，没有镐的假玩家会无限空手挖石头。

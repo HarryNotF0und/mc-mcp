@@ -314,3 +314,27 @@
 - result：`{"blueprints": [名字...], "schematics"?: [文件名...], "worldEdit": bool}`（`schematics` 仅在装有 WorldEdit 时出现）。
 
 `world.getInfo` 在装有 WorldEdit 时额外返回 `"worldEdit": 版本号`。
+
+## 具身模式（阶段 5）：`agent.*`
+
+假玩家（`AgentPlayer`，带假网络连接的 `ServerPlayer`）像普通玩家一样加入游戏：可见、受伤、拾取物品、背包按玩家数据保存。所有方法都接受 `agent`（名字，默认 `"Agent"`）。耗时动作作为**并行任务**运行（与建造队列并行，不占方块预算），返回任务对象，可用 `job.status` / `job.cancel`，结束时推送 `job.finished`；每个假玩家同一时间只能有一个任务（否则 `-32602`）。任务对象额外带 `agent`、`agentPos` 和 `result`（动作结果，见各方法）。
+
+失败原因写在任务的 `error` 中，例如：`no path to ...`、`could not reach ...: stuck ...`、`agent died at ... (原因); agent_spawn brings it back`、`agent left the game`、`timed out after N s`。
+
+假玩家不受 `allowedRegions` 限制（它和真实玩家一样只能做生存模式能做的事），但放置仍检查方块黑名单。
+
+| 方法 | params | 说明 |
+|---|---|---|
+| `agent.spawn` | `{agent?, pos?: [x,y,z], dimension?, gameMode?: "survival"}` | 生成；已存在则移动到 `pos`；死亡状态则复活。默认出现在第一个真实玩家旁边。返回状态。名字 3–16 位字母数字下划线，不能与在线真实玩家重名。 |
+| `agent.despawn` | `{agent?}` | 离开游戏（背包保存）。 |
+| `agent.getState` | `{agent?}` | `{agent, dimension, pos, blockPos, dead, health, food, gameMode, mainHand, inventory: [{item,count}], equipment: {slot: item}, busyWithJob?}` |
+| `agent.goto` | `{agent?, pos, range?: 1, dig?: false}` | A* 寻路：行走、跳上 1 格、下落最多 4 格；`dig` 时可挖穿方块。任务 5 分钟超时。`result.reached`、`result.blocksDug`。 |
+| `agent.mineBlock` | `{agent?, pos, dig?: true}` | 走到触及范围（4.5 格）内，用背包中最合适的工具按原版耗时挖掘。`result: {block, tool, ticks, warning?}`（无合适工具不掉落时给出警告）。 |
+| `agent.collectItems` | `{agent?, radius?: 8}` | 走到附近掉落物处拾取。`result.collected: {item: count}`。 |
+| `agent.placeBlock` | `{agent?, pos, block}` | 消耗背包中对应物品放置；需要可替换的目标、相邻有方块可依附、方块能存活。放置精确的方块状态。 |
+| `agent.craft` | `{agent?, item, count?: 1}` | 同步。按配方表合成直到产出 ≥ `count`；超过 2×2 的配方需要 4.5 格内有工作台。结果 `{item, crafted, have, warning?, inventory}`；缺料时 `-32602`，`data.inventory` 为当前背包。容器类返还物（桶）不返还。 |
+| `agent.equip` | `{agent?, item, slot?: "mainhand"}` | 同步。`slot`：`mainhand` / `offhand` / `head` / `chest` / `legs` / `feet`。 |
+| `agent.gather` | `{agent?, item, count?: 1, radius?: 24}` | 反复：找最近的、暴露在外、按战利品表（以背包最佳工具）会掉落该物品且当前工具能采集的方块 → 挖掘 → 拾取，直到背包中有 `count` 个。任务 20 分钟超时。`result: {item, have, gained, blocksMined}`（运行中也实时更新）。 |
+| `agent.buildBlueprint` | 同 `build.placeBlueprint`（`blueprint` / `name` / `schematic`、`origin`、`rotation`、`mirror`），加 `agent?` | 自下而上逐块放置，挡路的方块先挖掉，蓝图中的空气跳过。开始前检查材料：缺料时 `-32602`，`data.missing: [{item, missing}]`。`result: {placed, alreadyThere, errors?}`。 |
+
+寻路细节：只在已加载区块内搜索，最多 30000 个节点、水平 96 格。不进入水、岩浆、火、仙人掌、甜浆果丛、蜘蛛网、细雪等。挖掘时不挖与流体相邻的方块、会下落的方块（沙、砂砾）及其下方、带方块实体的方块、基岩，以及用最佳工具需要超过 5 秒才能挖掉的方块。

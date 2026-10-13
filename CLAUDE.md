@@ -5,6 +5,7 @@
 ## 结构
 
 - `mod/` — Fabric 模组（Minecraft 1.21.1，Java 21，Mojang 映射）。WebSocket + JSON-RPC 服务端。
+  主要包：`net/`（WebSocket、分发）、`api/`（各方法）、`world/`、`history/`、`jobs/`、`script/`（Rhino）、`blueprint/`、`preview/`、`view/`（截图钩子，实现在 `src/client`）、`agent/`（假玩家）、`worldedit/`（可选集成）。
 - `bridge/` — Rust MCP 服务（`rmcp`，stdio）。连接模组，把 MCP tools 转成 JSON-RPC 调用。
 - `protocol/spec.md` — 模组 <-> bridge 协议，唯一权威来源。
 - `docs/decisions.md` — 设计决策记录；`docs/manual-test.md` — 手动测试清单。
@@ -17,6 +18,7 @@
 - 修改世界一律通过 `jobs/` 任务队列和 `BlockSnapshot.SET_FLAGS`，并记录到 ChangeSet；不要直接 `setBlock`（见 decisions D6）。
 - 改协议时同时更新 `protocol/spec.md`、`mod/`、`bridge/`。
 - 需要取舍的设计先写进 `docs/decisions.md`。
+- 用户使用说明在 `docs/USAGE.md`；新增或修改工具时同步更新。
 
 ## 常用命令
 

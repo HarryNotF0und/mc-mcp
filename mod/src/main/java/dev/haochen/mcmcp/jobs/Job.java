@@ -43,6 +43,14 @@ public abstract class Job {
 	protected void start(MinecraftServer server) {
 	}
 
+	/**
+	 * Parallel jobs (agent actions) run every tick next to the build queue instead of waiting in
+	 * it, and do not use its block budget; {@link #step} is then called once per tick.
+	 */
+	protected boolean parallel() {
+		return false;
+	}
+
 	/** Processes up to {@code budget} blocks and returns how many were processed. */
 	protected abstract int step(MinecraftServer server, int budget);
 

@@ -60,3 +60,11 @@
 - [ ] `save_blueprint` 带 `format: "schem"`；在游戏中用 `//schem load <名字>` 和 `//paste` 能读出同样的结构（与 WorldEdit 互通）。
 - [ ] 把下载的 `.schem` 放到 `config/worldedit/schematics/`，`list_blueprints` 能列出，`place_blueprint` 带 `schematic` 能放置并旋转。
 - [ ] 不装 WorldEdit 时：图案返回 `1003` 并提示需要 WorldEdit；其余功能不受影响。
+
+## 阶段 5（具身模式）
+
+- [ ] 自动化：`AgentGameTests` 通过：空背包假玩家砍树 → 合成木板/工作台/木棍 → 没有工作台时合成木镐被拒并说明原因 → 放置工作台 → 合成木镐 → 采集 10 个圆石（获得"石器时代"进度）；被困且不许挖时报 "no path"；允许挖时能挖出坑；缺物品放置/缺料合成报错；死亡使任务以 "agent died" 失败；没有镐时采集圆石快速失败（"better tool"）。
+- [ ] 真实世界中，仅用 `agent_*` 工具完成上述流程（不使用 `fill_region` 等上帝模式工具）；`job_status` 中能看到 `gather` 的实时进度。
+- [ ] `agent_build` 一个小蓝图：缺料时返回 `missing` 清单；材料足够时逐块建成。
+- [ ] 让假玩家走进岩浆或从高处跳下致死：任务以明确原因失败；`agent_spawn` 复活。
+- [ ] `agent_despawn` 后再 `agent_spawn`：背包保留。

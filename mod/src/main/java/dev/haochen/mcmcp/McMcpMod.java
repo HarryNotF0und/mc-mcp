@@ -1,5 +1,6 @@
 package dev.haochen.mcmcp;
 
+import dev.haochen.mcmcp.api.AgentApi;
 import dev.haochen.mcmcp.api.BlueprintApi;
 import dev.haochen.mcmcp.api.BuildApi;
 import dev.haochen.mcmcp.api.JobApi;
@@ -84,6 +85,7 @@ public class McMcpMod implements ModInitializer {
 		BlueprintApi.register(dispatcher);
 		PreviewApi.register(dispatcher);
 		ViewApi.register(dispatcher);
+		AgentApi.register(dispatcher);
 
 		if (System.getProperty("fabric-api.gametest") != null) {
 			// GameTests call the API directly; don't fight a running dev server for the port.
