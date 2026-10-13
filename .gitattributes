@@ -1,0 +1,4 @@
+# Unix start scripts must use LF; Windows scripts CRLF.
+gradlew         text eol=lf
+*.sh            text eol=lf
+*.bat           text eol=crlf

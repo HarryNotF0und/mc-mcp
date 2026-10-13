@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"id": "mcmcp",
+	"version": "${version}",
+	"name": "MC-MCP",
+	"description": "Lets AI agents control Minecraft over the Model Context Protocol.",
+	"authors": ["haochen"],
+	"license": "MIT",
+	"icon": "assets/mcmcp/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["dev.haochen.mcmcp.McMcpMod"],
+		"client": ["dev.haochen.mcmcp.client.McMcpClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
