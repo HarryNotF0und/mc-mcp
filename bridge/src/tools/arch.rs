@@ -141,15 +141,18 @@ the pictures with the user's request and fix problems with revise_building.")]
 
     #[tool(description = "Change part of a registered building and update only the blocks that differ (the diff \
 names the changed components and counts unchanged blocks). Applies to the active preview; a built building needs \
-confirm: true (ask the user first) and gets the diff as one undoable change. At most 3 revisions (config \
+confirm: true (ask the user first) and gets the diff as one undoable change. Waits for a world revision job; \
+if job.state is queued/running, poll job_status before inspecting or revising again. Incomplete builds must be \
+undone or rebuilt first. At most 3 revisions (config \
 maxRevisionRounds) until the user approves more: then show the user the result, ask, and pass userApproved: true. \
 Example: {\"name\":\"house\",\"ops\":[{\"op\":\"update\",\"id\":\"roof\",\"set\":{\"overhang\":1}}]}")]
     async fn revise_building(&self, Parameters(args): Parameters<ReviseBuildingArgs>) -> Result<CallToolResult, ErrorData> {
-        Ok(self.forward("arch.revise", params(&args)).await)
+        Ok(self.forward_job("arch.revise", params(&args)).await)
     }
 
-    #[tool(description = "The current plan and status (planned / previewing / built, revision, rounds since \
-approval) of a registered building, or the list of all of them. Plans are saved in <game dir>/mcmcp/buildings/.")]
+    #[tool(description = "The current plan and status (planned / previewing / building / built / incomplete, dimension, \
+pending jobId, revision, rounds since approval) of a registered building, or the list of all of them. \
+Buildings are saved per world in <world save>/mcmcp/buildings/ with their applied baseline and original block data.")]
     async fn get_building(&self, Parameters(args): Parameters<GetBuildingArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.forward("arch.get", params(&args)).await)
     }

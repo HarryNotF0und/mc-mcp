@@ -12,6 +12,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.IntConsumer;
+import java.util.function.BiConsumer;
 
 /**
  * Everything one modifying operation changed, with the before and after state of each block.
@@ -32,6 +34,16 @@ public final class ChangeSet {
 	private final Map<Integer, CompoundTag> beforeNbt = new HashMap<>();
 	private final Map<Integer, CompoundTag> afterNbt = new HashMap<>();
 	private @Nullable Region bounds;
+	private IntConsumer restoreStarted = id -> {};
+	private BiConsumer<Boolean, Boolean> restoreFinished = (undo, complete) -> {};
+
+	/** Metadata follows the same queued undo/redo as the world snapshots. */
+	public void onRestore(IntConsumer started, BiConsumer<Boolean, Boolean> finished) {
+		restoreStarted = started;
+		restoreFinished = finished;
+	}
+	public void restoreStarted(int jobId) { restoreStarted.accept(jobId); }
+	public void restoreFinished(boolean undo, boolean complete) { restoreFinished.accept(undo, complete); }
 
 	public ChangeSet(int id, String description, ResourceKey<Level> dimension) {
 		this.id = id;

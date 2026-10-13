@@ -18,6 +18,21 @@ import dev.haochen.mcmcp.worldedit.WorldEditBridge;
 public final class Guard {
 	private final McMcpConfig config;
 
+	/** Check only chunks actually touched by a sparse block list. */
+	public static void checkChunks(ServerLevel level, it.unimi.dsi.fastutil.longs.LongSet chunks, boolean load) {
+		int missing = 0;
+		for (long key : chunks) {
+			int cx = (int) key, cz = (int) (key >> 32);
+			if (!level.getChunkSource().hasChunk(cx, cz)) {
+				if (load) level.getChunk(cx, cz); else missing++;
+			}
+		}
+		if (missing > 0) {
+			JsonObject data = new JsonObject(); data.addProperty("unloadedChunks", missing);
+			throw new RpcException(RpcException.CHUNK_NOT_LOADED, missing + " chunk(s) in the block list are not loaded; move a player closer or pass loadChunks=true", data);
+		}
+	}
+
 	public Guard(McMcpConfig config) {
 		this.config = config;
 	}

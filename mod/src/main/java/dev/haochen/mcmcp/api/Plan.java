@@ -20,7 +20,7 @@ public record Plan(ServerLevel level, BlockList blocks, String kind, String desc
 		}
 		s.guard().checkVolume(blocks.size());
 		s.guard().checkRegion(level, blocks.bounds());
-		Guard.checkChunks(level, blocks.bounds(), loadChunks);
+		Guard.checkChunks(level, blocks.chunks(), loadChunks);
 	}
 
 	/** Validates and queues the blocks as one undoable job. Server thread. */

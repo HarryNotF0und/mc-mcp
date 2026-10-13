@@ -28,6 +28,24 @@ import java.util.function.Supplier;
 public class AgentGameTests implements FabricGameTest {
 	private static final String EMPTY = FabricGameTest.EMPTY_STRUCTURE;
 
+	@GameTest(template = EMPTY, batch = "agent_cancel_queued")
+	public void cancellingQueuedAgentJobReleasesBusyStateAndNeverRuns(GameTestHelper helper) {
+		String name = "CancelAgent";
+		JsonObject spawn = params(name); spawn.add("pos", Json.blockPos(helper.absolutePos(new BlockPos(1, 0, 1))));
+		AgentApiAccess.call("agent.spawn", spawn);
+		JsonObject go = params(name); go.add("pos", Json.blockPos(helper.absolutePos(new BlockPos(6, 0, 6))));
+		int id = start("agent.goto", go);
+		JsonObject cancel = new JsonObject(); cancel.addProperty("jobId", id); AgentApiAccess.call("job.cancel", cancel);
+		helper.assertTrue(!AgentApiAccess.call("agent.getState", params(name)).has("busyWithJob"), "queued cancellation releases the agent immediately");
+		int next = start("agent.goto", go); cancel.addProperty("jobId", next); AgentApiAccess.call("job.cancel", cancel);
+		McMcpMod.services().jobs().tick(helper.getLevel().getServer());
+		for (int jobId : new int[]{id, next}) {
+			Job job = McMcpMod.services().jobs().get(jobId);
+			helper.assertTrue(job.state() == Job.State.CANCELLED && job.toJson().get("done").getAsInt() == 0, "cancelled parallel job never ticks: " + job.toJson());
+		}
+		AgentApiAccess.call("agent.despawn", params(name)); helper.succeed();
+	}
+
 	@GameTest(template = EMPTY, batch = "agent_place_corner", timeoutTicks = 400)
 	public void placementWalksClearOfDiagonalCorners(GameTestHelper helper) {
 		String name = "CornerAgent";

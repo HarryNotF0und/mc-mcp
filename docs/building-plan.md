@@ -164,3 +164,12 @@ The building's name must stay the same in both operations and replacement plans.
 revisions preserve the previous plan, preview, and revision counters. A revised preview goes
 through the same safety checks as a new preview. To confirm a building preview, fix its
 validation errors first; `confirm_preview` otherwise returns `1007` and keeps it active.
+
+For a built building, a new preview is staged separately from its applied baseline. Discarding
+the preview restores the applied design; confirming restores original blocks and block entity
+data at removed positions. Undo and redo restore the corresponding design baseline.
+
+While the building reports `building`, wait for its `jobId`; revisions are rejected until the
+job finishes. If it reports `incomplete`, undo or place the complete plan again first. Registry
+metadata is saved per world in `<world save>/mcmcp/buildings/`, including dimension, compiled
+blocks and original block entity data. Old standalone plans are imported as unbound designs.

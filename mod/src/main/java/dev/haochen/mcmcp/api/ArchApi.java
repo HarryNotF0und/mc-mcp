@@ -14,6 +14,8 @@ import dev.haochen.mcmcp.arch.PlanOps;
 import dev.haochen.mcmcp.arch.PlanValidator;
 import dev.haochen.mcmcp.arch.SiteAnalyzer;
 import dev.haochen.mcmcp.arch.ViewPlanner;
+import dev.haochen.mcmcp.jobs.BuildingJob;
+import dev.haochen.mcmcp.jobs.PlaceJob.Placement;
 import dev.haochen.mcmcp.net.RpcDispatcher;
 import dev.haochen.mcmcp.net.RpcException;
 import dev.haochen.mcmcp.view.ViewHook;
@@ -107,13 +109,13 @@ public final class ArchApi {
 	// ---------------------------------------------------------------- compile / preview / place
 
 	public record Compiled(JsonObject planJson, BuildingPlan plan, PlanCompiler compiler, JsonObject validation, BlockList blocks,
-						   JsonObject stats, ServerLevel level) {
+						   JsonObject stats, ServerLevel level, Long2ObjectLinkedOpenHashMap<WorldCell> frozenCells) {
 		Plan toPlan(boolean loadChunks) {
 			return new Plan(level, blocks, "building", "build " + plan.name, loadChunks, stats);
 		}
 
 		Long2ObjectLinkedOpenHashMap<WorldCell> worldCells() {
-			return compiler.worldCells();
+			return frozenCells != null ? frozenCells : compiler.worldCells();
 		}
 
 		boolean valid() {
@@ -155,7 +157,7 @@ public final class ArchApi {
 		terrain.addProperty("foundationMaxDepth", compiler.foundationDepth());
 		stats.add("terrain", terrain);
 		stats.add("validation", validation);
-		return new Compiled(planJson, plan, compiler, validation, blocks, stats, level);
+		return new Compiled(planJson, plan, compiler, validation, blocks, stats, level, null);
 	}
 
 	/** A {@link Plan} for dry runs and the generic blueprint path (no registration). */
@@ -177,9 +179,9 @@ public final class ArchApi {
 	/** Preview a plan and register the building (a new preview of the same name replaces the old one). */
 	static JsonObject preview(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
-		Compiled c = compile(server, params);
+		Compiled c = compileRegistered(server, params);
 		BuildingRegistry.Entry old = s.buildings().find(BuildingRegistry.nameOf(c.planJson));
-		Plan plan = c.toPlan(Params.bool(params, "loadChunks", false));
+		Plan plan = previewPlan(c, old, Params.bool(params, "loadChunks", false));
 		plan.validate(s);
 		if (old != null && old.previewId >= 0 && s.previews().active(old.previewId)) {
 			s.previews().discard(old.previewId);
@@ -194,17 +196,96 @@ public final class ArchApi {
 	/** Place a plan for real and register it (remembering what it replaces). */
 	static JsonObject place(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
-		Compiled c = compile(server, params);
+		Compiled c = compileRegistered(server, params);
 		requireValid(c, params);
-		BuildingRegistry.nameOf(c.planJson);
-		Plan plan = c.toPlan(Params.bool(params, "loadChunks", false));
+		return submitBuilding(s, c, Params.bool(params, "loadChunks", false));
+	}
+
+	private static Compiled compileRegistered(MinecraftServer server, JsonObject params) {
+		JsonObject json = Params.object(params, "building");
+		BuildingRegistry.Entry e = McMcpMod.services().buildings().find(BuildingRegistry.nameOf(json));
+		if (e == null) return compile(server, params, json);
+		e.requireIdle();
+		ServerLevel level = WorldApi.level(server, params);
+		if ((e.built || e.incomplete || !e.originals.isEmpty()) && e.level != level) throw Params.invalid("a world-bound building cannot change dimension; choose another name");
+		return compile(server, params, json, occupied(e), e.originals);
+	}
+
+	private static java.util.Set<Long> occupied(BuildingRegistry.Entry e) {
+		if (!e.incomplete) return e.applied != null ? e.applied.cells().keySet() : java.util.Set.of();
+		var owned = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+		if (e.compiled != null) for (long key : e.compiled.keySet()) if (e.originals.containsKey(key)) owned.add(key);
+		if (e.applied != null) for (long key : e.applied.cells().keySet()) if (e.originals.containsKey(key)) owned.add(key);
+		return owned;
+	}
+
+	/** Full display includes restoration of positions removed from an applied building. */
+	private static Plan previewPlan(Compiled c, BuildingRegistry.Entry e, boolean loadChunks) {
+		BlockList blocks = new BlockList();
+		for (var it = c.blocks.placements(); it.hasNext();) { var p = it.next(); blocks.put(p.pos(), p.state()); }
+		if (e != null && e.applied != null && e.applied.cells() != null) {
+			for (long pos : e.applied.cells().keySet()) if (!c.worldCells().containsKey(pos) && (!e.incomplete || e.originals.containsKey(pos))) blocks.put(BlockPos.of(pos), e.original(BlockPos.of(pos)).state());
+		}
+		return new Plan(c.level, blocks, "building", "build " + c.plan.name, loadChunks, c.stats);
+	}
+
+	/** Submit only the applied-to-desired delta; snapshots are captured by BuildingJob when it writes. */
+	private static JsonObject submitBuilding(Services s, Compiled c, boolean loadChunks) {
+		String name = BuildingRegistry.nameOf(c.planJson);
+		BuildingRegistry.Entry e = s.buildings().find(name);
+		if (e != null) e.requireIdle();
+		BlockList list = new BlockList();
+		var restores = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<dev.haochen.mcmcp.history.BlockSnapshot>();
+		if (e == null || e.applied == null || e.incomplete) {
+			for (var it = c.blocks.placements(); it.hasNext();) { var p = it.next(); list.put(p.pos(), p.state()); }
+		} else {
+			BuildingRegistry.diff(e.applied.cells(), c.worldCells()).set().forEach(list::put);
+		}
+		if (e != null && e.applied != null) for (long key : e.applied.cells().keySet()) {
+			if (!c.worldCells().containsKey(key) && (!e.incomplete || e.originals.containsKey(key))) {
+				BlockPos pos = BlockPos.of(key); var original = e.original(pos);
+				list.put(pos, original.state()); restores.put(key, original);
+			}
+		}
+		if (list.size() == 0) {
+			e = s.buildings().update(c.planJson, c.level, c.worldCells());
+			e.applied = e.snapshot(); s.buildings().save(e);
+			JsonObject out = new JsonObject(); out.addProperty("state", "done"); out.addProperty("changed", 0); out.addProperty("building", name); return out;
+		}
+		Plan plan = new Plan(c.level, list, "building", "build/revise " + name, loadChunks, list.stats(5));
 		plan.validate(s);
-		BuildingRegistry.Entry e = s.buildings().update(c.planJson, c.level, c.worldCells());
-		BuildingRegistry.captureOriginals(e, c.level, e.compiled.keySet());
-		JsonObject job = plan.submit(s);
-		e.built = true;
-		job.addProperty("building", e.name);
-		return job;
+		if (e == null) e = s.buildings().update(c.planJson, c.level, c.worldCells());
+		var it = list.placements();
+		java.util.Iterator<Placement> source = new java.util.Iterator<>() {
+			public boolean hasNext() { return it.hasNext(); }
+			public Placement next() { var p = it.next(); var original = restores.get(p.pos().asLong()); return original == null ? p : new Placement(p.pos(), original); }
+		};
+		BuildingJob job = new BuildingJob(s, e, plan, source);
+		s.buildings().update(c.planJson, c.level, c.worldCells());
+		s.jobs().submit(job); e.pendingJobId = job.id();
+		if (e.previewId >= 0 && s.previews().active(e.previewId)) s.previews().discard(e.previewId);
+		JsonObject out = job.toJson(); out.addProperty("building", name);
+		if (McMcpMod.server().isPaused()) out.addProperty("warning", BuildApi.PAUSED_WARNING);
+		return out;
+	}
+
+	static JsonObject confirm(MinecraftServer server, JsonObject params, BuildingRegistry.Entry e) {
+		e.requireIdle();
+		Plan preview = McMcpMod.services().previews().plan(e.previewId);
+		if (preview.stats().has("validation") && !preview.stats().getAsJsonObject("validation").get("ok").getAsBoolean()
+				&& !Params.bool(params, "ignoreValidation", false)) throw new RpcException(RpcException.BUILDING_INVALID,
+				"the building preview has validation errors; revise it before confirming (or pass ignoreValidation: true)", preview.stats().get("validation"));
+		preview.validate(McMcpMod.services());
+		JsonObject cp = new JsonObject(); cp.addProperty("loadChunks", true); cp.addProperty("dimension", e.level.dimension().location().toString());
+		Compiled c = compile(server, cp, e.plan, occupied(e), e.originals);
+		requireValid(c, params);
+		// Revalidate current conditions, but never silently enlarge the approved preview's terrain work.
+		BlockList frozen = new BlockList();
+		for (var cell : e.compiled.long2ObjectEntrySet()) frozen.put(BlockPos.of(cell.getLongKey()), cell.getValue().state());
+		c = new Compiled(e.plan, c.plan, c.compiler, c.validation, frozen, preview.stats(), c.level, e.compiled);
+		JsonObject out = submitBuilding(McMcpMod.services(), c, true);
+		if (e.previewId >= 0 && McMcpMod.services().previews().active(e.previewId)) McMcpMod.services().previews().discard(e.previewId);
+		return out;
 	}
 
 	// ---------------------------------------------------------------- registry
@@ -230,6 +311,8 @@ public final class ArchApi {
 	private static JsonObject revise(MinecraftServer server, JsonObject p) {
 		Services s = McMcpMod.services();
 		BuildingRegistry.Entry e = s.buildings().get(Params.string(p, "name"));
+		e.requireIdle();
+		if (e.incomplete) throw Params.invalid("building is incomplete; undo it or place the full plan again before revising");
 		int rounds = Params.bool(p, "userApproved", false) ? 0 : e.rounds;
 		int limit = s.config().maxRevisionRounds;
 		if (rounds >= limit) {
@@ -253,7 +336,7 @@ public final class ArchApi {
 		}
 		Long2ObjectLinkedOpenHashMap<WorldCell> before = e.compiled != null ? e.compiled
 				: compile(server, compileParams, e.plan).worldCells();
-		Compiled now = compile(server, compileParams, newPlan, e.built ? before.keySet() : java.util.Set.of(),
+		Compiled now = compile(server, compileParams, newPlan, e.applied != null ? e.applied.cells().keySet() : java.util.Set.of(),
 				e.built ? e.originals : Long2ObjectMaps.emptyMap());
 		BuildingRegistry.Diff diff = BuildingRegistry.diff(before, now.worldCells());
 
@@ -263,7 +346,7 @@ public final class ArchApi {
 		out.add("validation", now.validation);
 		String applied;
 		if (e.previewId >= 0 && s.previews().active(e.previewId)) {
-			s.previews().update(s, e.previewId, now.toPlan(true), diff.set(), diff.removed());
+			s.previews().update(s, e.previewId, previewPlan(now, e, true));
 			applied = "preview";
 		} else if (e.built) {
 			if (!Params.bool(p, "confirm", false)) {
@@ -273,17 +356,8 @@ public final class ArchApi {
 				return out;
 			}
 			requireValid(now, p);
-			BlockList list = new BlockList();
-			BuildingRegistry.captureOriginals(e, now.level, diff.set().keySet().stream().map(BlockPos::asLong).toList());
-			diff.set().forEach(list::put);
-			for (BlockPos pos : diff.removed()) {
-				BlockState orig = e.originals.get(pos.asLong());
-				list.put(pos, orig != null ? orig : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
-			}
-			if (list.size() > 0) {
-				Plan plan = new Plan(now.level, list, "revise", "revise " + e.name + " (revision " + (e.revision + 1) + ")", true, list.stats(5));
-				out.add("job", plan.submit(s));
-			}
+			JsonObject job = submitBuilding(s, now, true);
+			if (job.has("jobId")) out.add("job", job);
 			applied = "world";
 		} else {
 			applied = "plan";
@@ -291,6 +365,8 @@ public final class ArchApi {
 		s.buildings().update(newPlan, now.level, now.worldCells());
 		e.revision++;
 		e.rounds = rounds + 1;
+		if (e.pendingJobId < 0 && e.built && e.previewId < 0) e.applied = e.snapshot();
+		s.buildings().save(e);
 		out.addProperty("applied", applied);
 		out.addProperty("revision", e.revision);
 		out.addProperty("roundsLeft", Math.max(0, limit - e.rounds));
@@ -322,14 +398,14 @@ public final class ArchApi {
 			if (e.level != null) {
 				cp.addProperty("dimension", e.level.dimension().location().toString());
 			}
-			Compiled c = compile(server, cp, e.plan, e.built && e.compiled != null ? e.compiled.keySet() : java.util.Set.of(),
+			Compiled c = compile(server, cp, e.plan, occupied(e),
 					e.built ? e.originals : Long2ObjectMaps.emptyMap());
 			JsonObject out = new JsonObject();
 			out.add("status", e.status());
 			out.add("validation", c.validation);
 			out.add("design", DesignMetrics.measure(c.compiler.grid(), e.plan));
-			if (e.built) {
-				out.add("verification", verify(c.level, e.compiled != null ? e.compiled : c.worldCells()));
+			if (e.built || e.incomplete) {
+				out.add("verification", verify(c.level, e.incomplete ? e.compiled : e.applied != null ? e.applied.cells() : e.compiled));
 			}
 			List<ViewPlanner.View> planned = ViewPlanner.plan(c.compiler.grid(), c.worldCells(), views, views.contains("interior") ? Math.max(fov, 85) : fov);
 			return new Object[]{out, planned};
@@ -348,7 +424,8 @@ public final class ArchApi {
 				return CompletableFuture.completedFuture((JsonElement) out);
 			}
 			List<ViewHook.Shot> shots = planned.stream().map(ViewPlanner.View::shot).toList();
-			return hook.capture(shots, width, height, fov, daylight).thenApply(pngs -> {
+			int captureFov = views.contains("interior") ? Math.max(fov, 85) : fov;
+			return hook.capture(shots, width, height, captureFov, daylight).thenApply(pngs -> {
 				JsonArray shotsJson = new JsonArray();
 				for (int i = 0; i < planned.size(); i++) {
 					JsonObject o = ViewPlanner.describe(planned.get(i));
@@ -364,6 +441,7 @@ public final class ArchApi {
 				}
 				out.addProperty("width", width);
 				out.addProperty("height", height);
+				out.addProperty("fov", captureFov);
 				out.add("shots", shotsJson);
 				return (JsonElement) out;
 			});

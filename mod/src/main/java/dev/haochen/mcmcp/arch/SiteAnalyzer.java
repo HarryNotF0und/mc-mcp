@@ -25,6 +25,11 @@ import java.util.List;
 public final class SiteAnalyzer {
 	public static final int MAX_RADIUS = 48;
 	private static final int SCAN_DEPTH = 40;
+	private static final int[][] NEXT = {{1, 0}, {0, 1}};
+	private static final int[][] AROUND = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
+	private static final Direction[] NORTH_SOUTH = {Direction.SOUTH, Direction.NORTH};
+	private static final Direction[] EAST_WEST = {Direction.EAST, Direction.WEST};
+	private static final Direction[] ALL_SIDES = {Direction.SOUTH, Direction.NORTH, Direction.EAST, Direction.WEST};
 
 	private final ServerLevel level;
 	private final Guard guard;
@@ -114,7 +119,7 @@ public final class SiteAnalyzer {
 				minH = Math.min(minH, c.groundY());
 				maxH = Math.max(maxH, c.groundY());
 				int local = 0;
-				for (int[] d : new int[][]{{1, 0}, {0, 1}}) {
+				for (int[] d : NEXT) {
 					Terrain.Column n = col(dx + d[0], dz + d[1]);
 					if (n != null) {
 						int step = Math.abs(n.groundY() - c.groundY());
@@ -181,8 +186,8 @@ public final class SiteAnalyzer {
 							yield '=';
 						}
 						int slope = 0;
-						for (int[] d : new int[][]{{step, 0}, {0, step}, {-step, 0}, {0, -step}}) {
-							Terrain.Column n = col(dx + d[0], dz + d[1]);
+						for (int[] d : AROUND) {
+							Terrain.Column n = col(dx + d[0] * step, dz + d[1] * step);
 							if (n != null) {
 								slope = Math.max(slope, Math.abs(n.groundY() - c.groundY()));
 							}
@@ -207,18 +212,36 @@ public final class SiteAnalyzer {
 		return o;
 	}
 
-	private record Candidate(int wx0, int wz0, int wx, int wz, int floorY, Direction facing, double score, JsonObject stats) {
+	private record Candidate(int wx0, int wz0, int wx, int wz, int floorY, Direction facing, double score, SiteStats stats) {
+	}
+
+	private record SiteStats(int floorY, int min, int max, int cut, int fill, int water, int lava, int tree, int built,
+			Direction[] sides, double[] accessCosts, double distance) {
+		JsonObject toJson() {
+			JsonObject s = new JsonObject();
+			s.addProperty("floorY", floorY); s.addProperty("groundMin", min); s.addProperty("groundMax", max);
+			s.addProperty("cut", cut); s.addProperty("fill", fill); s.addProperty("maxFoundationDepth", Math.max(0, floorY - min));
+			if (water > 0) s.addProperty("waterColumns", water);
+			if (lava > 0) s.addProperty("lavaColumns", lava);
+			if (tree > 0) s.addProperty("treeColumns", tree);
+			if (built > 0) s.addProperty("builtColumns", built);
+			JsonObject access = new JsonObject();
+			for (int i = 0; i < sides.length; i++) access.addProperty(sides[i].getName(), Math.round(accessCosts[i] * 10) / 10.0);
+			s.add("entranceAccessCost", access); s.addProperty("distanceFromCenter", Math.round(distance));
+			return s;
+		}
 	}
 
 	private JsonArray candidates(Request r) {
 		List<Candidate> all = new ArrayList<>();
+		int[] heights = new int[r.width * r.depth];
 		int step = Math.max(1, (r.width + r.depth) / 8);
 		// Orientation A: width along x (front faces north or south); B: width along z (front east/west).
 		for (int orient = 0; orient < (r.width == r.depth ? 1 : 2); orient++) {
 			int wx = orient == 0 ? r.width : r.depth, wz = orient == 0 ? r.depth : r.width;
 			for (int dz = r.margin; dz + wz + r.margin <= size; dz += step) {
 				for (int dx = r.margin; dx + wx + r.margin <= size; dx += step) {
-					Candidate c = evaluate(r, dx, dz, wx, wz, orient);
+					Candidate c = evaluate(r, dx, dz, wx, wz, orient, heights);
 					if (c != null) {
 						all.add(c);
 					}
@@ -231,7 +254,8 @@ public final class SiteAnalyzer {
 		for (Candidate c : all) {
 			boolean overlaps = false;
 			for (Candidate o : chosen) {
-				if (Math.abs(o.wx0 - c.wx0) < (o.wx + c.wx) / 2 && Math.abs(o.wz0 - c.wz0) < (o.wz + c.wz) / 2) {
+				if (c.wx0 - r.margin < o.wx0 + o.wx + r.margin && o.wx0 - r.margin < c.wx0 + c.wx + r.margin
+						&& c.wz0 - r.margin < o.wz0 + o.wz + r.margin && o.wz0 - r.margin < c.wz0 + c.wz + r.margin) {
 					overlaps = true;
 					break;
 				}
@@ -252,7 +276,7 @@ public final class SiteAnalyzer {
 			worldSize.add(c.wz);
 			j.add("worldSizeXZ", worldSize);
 			j.addProperty("score", Math.round(c.score * 10) / 10.0);
-			j.add("stats", c.stats);
+			j.add("stats", c.stats.toJson());
 			out.add(j);
 			if (chosen.size() >= r.top) {
 				break;
@@ -261,8 +285,7 @@ public final class SiteAnalyzer {
 		return out;
 	}
 
-	private @Nullable Candidate evaluate(Request r, int dx0, int dz0, int wx, int wz, int orient) {
-		int[] hs = new int[wx * wz];
+	private @Nullable Candidate evaluate(Request r, int dx0, int dz0, int wx, int wz, int orient, int[] hs) {
 		int n = 0, water = 0, lava = 0, tree = 0, built = 0;
 		for (int dz = dz0; dz < dz0 + wz; dz++) {
 			for (int dx = dx0; dx < dx0 + wx; dx++) {
@@ -281,16 +304,15 @@ public final class SiteAnalyzer {
 				}
 			}
 		}
-		int[] sorted = Arrays.copyOf(hs, n);
-		Arrays.sort(sorted);
-		int floorY = sorted[n / 2];
+		Arrays.sort(hs);
+		int floorY = hs[n / 2];
 		int cut = 0, fill = 0;
 		for (int h : hs) {
 			cut += Math.max(0, h - floorY);
 			fill += Math.max(0, floorY - 1 - h);
 		}
 		// Allowed region: the footprint from the foundation to a generous roof height.
-		Region box = Region.of(new BlockPos(x0 + dx0 - r.margin, sorted[0], z0 + dz0 - r.margin),
+		Region box = Region.of(new BlockPos(x0 + dx0 - r.margin, hs[0], z0 + dz0 - r.margin),
 				new BlockPos(x0 + dx0 + wx - 1 + r.margin, floorY + 24, z0 + dz0 + wz - 1 + r.margin));
 		try {
 			guard.checkRegion(level, box);
@@ -298,14 +320,15 @@ public final class SiteAnalyzer {
 			return null;
 		}
 		// Entrance side: the strip just outside each wall, as flat, dry and road-like as possible.
-		Direction[] sides = orient == 0 ? new Direction[]{Direction.SOUTH, Direction.NORTH} : new Direction[]{Direction.EAST, Direction.WEST};
+		Direction[] sides = r.width == r.depth ? ALL_SIDES : orient == 0 ? NORTH_SOUTH : EAST_WEST;
 		Direction best = null;
 		double bestAccess = Double.MAX_VALUE;
-		JsonObject access = new JsonObject();
+		double[] access = new double[sides.length];
 		double preferredAccess = Double.MAX_VALUE;
-		for (Direction side : sides) {
+		for (int i = 0; i < sides.length; i++) {
+			Direction side = sides[i];
 			double a = accessCost(dx0, dz0, wx, wz, side, floorY, Math.max(1, r.margin));
-			access.addProperty(side.getName(), Math.round(a * 10) / 10.0);
+			access[i] = a;
 			if (a < bestAccess) {
 				best = side;
 				bestAccess = a;
@@ -322,20 +345,8 @@ public final class SiteAnalyzer {
 		int cx = dx0 + wx / 2 - size / 2, cz = dz0 + wz / 2 - size / 2;
 		double dist = Math.sqrt(cx * cx + cz * cz);
 		double score = cut + 0.6 * fill + 40 * water + 1000 * lava + 100 * built + 2 * tree + 0.3 * dist + 2 * bestAccess
-				+ (r.preferFacing != null && best != r.preferFacing ? 15 : 0);
-		JsonObject s = new JsonObject();
-		s.addProperty("floorY", floorY);
-		s.addProperty("groundMin", sorted[0]);
-		s.addProperty("groundMax", sorted[n - 1]);
-		s.addProperty("cut", cut);
-		s.addProperty("fill", fill);
-		s.addProperty("maxFoundationDepth", Math.max(0, floorY - sorted[0]));
-		if (water > 0) s.addProperty("waterColumns", water);
-		if (lava > 0) s.addProperty("lavaColumns", lava);
-		if (tree > 0) s.addProperty("treeColumns", tree);
-		if (built > 0) s.addProperty("builtColumns", built);
-		s.add("entranceAccessCost", access);
-		s.addProperty("distanceFromCenter", Math.round(dist));
+				+ (r.preferFacing != null && best != r.preferFacing ? 5 : 0);
+		SiteStats s = new SiteStats(floorY, hs[0], hs[n - 1], cut, fill, water, lava, tree, built, sides, access, dist);
 		return new Candidate(dx0, dz0, wx, wz, floorY, best, score, s);
 	}
 

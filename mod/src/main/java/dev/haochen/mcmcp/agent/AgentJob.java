@@ -59,12 +59,15 @@ public final class AgentJob extends Job {
 	@Override
 	protected void onDone(MinecraftServer server) {
 		agent.stop();
-		manager.finished(agent, this);
 	}
 
 	@Override
 	protected void onAborted(MinecraftServer server) {
 		task.abort();
+	}
+
+	@Override
+	protected void onFinished() {
 		manager.finished(agent, this);
 	}
 

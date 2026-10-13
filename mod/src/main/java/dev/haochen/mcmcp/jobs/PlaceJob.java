@@ -22,8 +22,10 @@ import java.util.Iterator;
  * blocks placed by this job are re-shaped when a later neighbour arrives; blocks outside the job
  * are never modified, which keeps undo exact.
  */
-public final class PlaceJob extends Job {
-	public record Placement(BlockPos pos, BlockState state) {
+public class PlaceJob extends Job {
+	public record Placement(BlockPos pos, BlockState state, BlockSnapshot restore) {
+		public Placement(BlockPos pos, BlockState state) { this(pos, state, null); }
+		public Placement(BlockPos pos, BlockSnapshot restore) { this(pos, restore.state(), restore); }
 	}
 
 	private final ServerLevel level;
@@ -31,6 +33,10 @@ public final class PlaceJob extends Job {
 	private final History history;
 	private final ChangeSet changes;
 	private final LongOpenHashSet placed = new LongOpenHashSet();
+	private final LongOpenHashSet restored = new LongOpenHashSet();
+
+	protected final ChangeSet changes() { return changes; }
+	protected void beforeSet(BlockPos pos, BlockSnapshot before) { }
 
 	public PlaceJob(String kind, String description, ServerLevel level, int total, Iterator<Placement> source, History history) {
 		super(kind, description, total);
@@ -45,7 +51,17 @@ public final class PlaceJob extends Job {
 		int n = 0;
 		while (n < budget && source.hasNext()) {
 			Placement p = source.next();
-			place(p.pos(), p.state());
+			if (p.restore() != null) {
+				BlockSnapshot before = BlockSnapshot.capture(level, p.pos());
+				beforeSet(p.pos(), before);
+				if (!before.equals(p.restore())) {
+					p.restore().restore(level, p.pos());
+					changes.record(p.pos(), before, BlockSnapshot.capture(level, p.pos()));
+				}
+				restored.add(p.pos().asLong());
+			} else {
+				place(p.pos(), p.state());
+			}
 			n++;
 		}
 		done += n;
@@ -61,15 +77,23 @@ public final class PlaceJob extends Job {
 		placed.add(pos.asLong());
 		for (Direction dir : Direction.values()) {
 			BlockPos np = pos.relative(dir);
-			if (placed.contains(np.asLong())) {
+			if (placed.contains(np.asLong()) && !restored.contains(np.asLong())) {
 				BlockState ns = level.getBlockState(np);
-				set(np, ns.updateShape(dir.getOpposite(), state, level, np, pos));
+				BlockState shaped = ns.updateShape(dir.getOpposite(), state, level, np, pos);
+				if (shaped != ns) {
+					BlockSnapshot before = BlockSnapshot.capture(level, np);
+					beforeSet(np, before);
+					// A shape refresh is not a container replacement (e.g. joining chest halves).
+					new BlockSnapshot(shaped, shaped.getBlock() == ns.getBlock() ? before.nbt() : null).restore(level, np);
+					changes.record(np, before, BlockSnapshot.capture(level, np));
+				}
 			}
 		}
 	}
 
 	private void set(BlockPos pos, BlockState state) {
 		BlockSnapshot before = BlockSnapshot.capture(level, pos);
+		beforeSet(pos, before);
 		if (before.state() == state && before.nbt() == null) {
 			return;
 		}

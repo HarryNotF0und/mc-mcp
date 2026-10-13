@@ -65,6 +65,10 @@ public abstract class Job {
 	protected void onAborted(MinecraftServer server) {
 	}
 
+	/** Called for every terminal state, including cancellation before a job starts. */
+	protected void onFinished() {
+	}
+
 	/** Extra fields for status and {@code job.finished}, e.g. the change set id. */
 	protected void describe(JsonObject out) {
 	}

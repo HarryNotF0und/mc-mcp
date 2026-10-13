@@ -55,6 +55,7 @@
 - 方块：游戏原生方块状态字符串，例如 `minecraft:oak_stairs[facing=north,half=bottom]`；未写的属性取默认值。整个字符串必须是一个方块，多余文本报 `1003`。
 - 图案（需要服务器装有 WorldEdit）：`world.fillRegion` 的 `block` 与脚本 `b.*` 的方块参数也可以是 WorldEdit 图案，例如 `50%minecraft:stone,50%minecraft:andesite`。图案逐块求值，每个结果都过黑名单检查；执行中遇到黑名单方块时任务 `failed`。
 - `loadChunks`（读写方法通用，默认 `false`）：为 `false` 时区域内有未加载区块则返回 `1004`；为 `true` 时同步加载（必要时生成）这些区块。
+- 脚本、蓝图和建筑的稀疏方块列表只检查/加载实际涉及的区块，包围盒中未修改的空白区不会被自动加载。区域扫描/填充仍覆盖整个请求区域。
 - 分层格式（感知输出与阶段 3 蓝图输入共用）：
 
 ```json
@@ -221,6 +222,8 @@
 
 ### `job.cancel`
 
+并行的假玩家任务在未开始时取消也会立刻释放 busy 状态，并从执行列表移除，不会在后续 tick 继续运行。
+
 - params：`{"jobId": int}`
 - 排队中的任务直接取消；运行中的任务停止，已写入的部分作为一个 ChangeSet 记入历史，可撤销。已结束的任务不受影响。
 - result：任务对象。错误：`1005`。
@@ -276,10 +279,13 @@
 - params：与 `build.runScript`（有 `source` 时）或 `build.placeBlueprint`（否则）相同，不含 `dryRun`。
 - 预览前执行与真实写入相同的检查（`1001` / `1002` / `1003` / `1004`）。
 - 最多同时保留 5 个预览，超出时最旧的自动丢弃（向客户端恢复原方块）。
+- 重叠位置以最近创建的活动预览为准；丢弃/更新旧预览不会抹掉其上方仍有效的预览。
 - 之后加入的玩家看不到预览。
 - result：`{"previewId": n, "players": n, ...统计信息}`（统计同 `dryRun`）。
 
 ### `build.confirmPreview`
+
+确认会重新校验当前条件，但使用已经预览的方块列表；预览之后的地形变化不会偷偷增加地基或清理范围。
 
 - params：`{"previewId": n, "ignoreValidation"?: false}`
 - 把预览的方块作为一个写任务真正放置（一个 ChangeSet）。
@@ -391,21 +397,26 @@
 
 ## 迭代修改（v2 阶段 2）
 
-以 `building` 预览或放置的方案按 `name` 登记（`<游戏目录>/mcmcp/buildings/<name>.json` 持久化）。同名的新预览替换旧预览。
+以 `building` 预览或放置的方案按 `name` 登记（`<存档目录>/mcmcp/buildings/<name>.json` 持久化，格式 `mcmcp.registry/1`）。保存维度、完整编译结果、已执行基准、原始方块状态/NBT、轮数与状态；普通关闭时等待后台写入完成。列表也会发现尚未读取的存盘记录。旧 `<游戏目录>/mcmcp/buildings/` 纯方案作为未绑定世界/维度的 planned 设计导入，不推断它已建成。
+
+同名的新预览替换旧预览，但保留已执行基准。丢弃已建成建筑的预览恢复原设计；确认按已执行基准应用差分，包括完整恢复删除位置的原始 NBT。同一个世界中的已执行建筑不能通过复用名字更换维度；请使用另一个名字。
 
 预览被丢弃、确认或自动淘汰时清除登记表中的 `previewId`；新预览校验失败不会删除旧预览。
 
 ### `arch.get`
 
 - params：`{"name"?}`；无 `name` 时返回 `{"buildings": [状态]}`。
-- result：`{"status": {"name", "state": "planned"|"previewing"|"built", "previewId"?, "revision", "roundsSinceApproval", "blocks"}, "building": 方案}`
+- result：`{"status": {"name", "state": "planned"|"previewing"|"building"|"built"|"incomplete", "built": bool, "incomplete": bool, "dimension"?, "jobId"?, "previewId"?, "revision", "roundsSinceApproval", "blocks"}, "building": 方案}`
+- building 表示排队或执行中（`jobId` 可轮询）；成功后才显示 built。中途取消/失败显示 incomplete，未开始就取消则恢复原状态。`built` 表示有已执行基准（可含不完整建筑），以 `state` 和 `incomplete` 判断是否全部完成。同名建筑写任务进行中拒绝新的放置/预览/修改。
+- 撤销/重做完成时同步恢复对应的设计与执行基准；修订/批准计数保持单调，不通过 undo 返还次数。撤销/重做中途被取消时也标记 incomplete。
 
 ### `arch.inspect`（异步）
 
 - params：`{"name", "views"?: ["front","back","left","right","elevated","interior"], "images"?: true, "width"?: 640, "height"?: 400, "fov"?: 70, "daylight"?: true}`
-- result：`{"status", "validation", "design": {"facades", "windows", "roof", "proportions", "issues": [{"code", "message"}], "requirements": [{"name", "pass", "value"?}]}, "verification"?: {"blocks", "matching", "mismatchesByComponent", "samples"}, "views"|"shots": [{"view", "label", "pos", "yaw", "pitch", "shows", "png"?}], "width"?, "height"?, "note"?}`
+- result：`{"status", "validation", "design": {"facades", "windows", "roof", "proportions", "issues": [{"code", "message"}], "requirements": [{"name", "pass", "value"?}]}, "verification"?: {"blocks", "matching", "mismatchesByComponent", "samples"}, "views"|"shots": [{"view", "label", "pos", "yaw", "pitch", "shows", "png"?}], "width"?, "height"?, "fov"?, "note"?}`
 - `verification` 仅对已建成建筑；忽略 open/powered/occupied/lit，以及玻璃板、栅栏等按邻居连接的形状属性。
 - `verification` 使用保存的完整编译结果，包括深地基和地形清理位置。修改/设计校验用保存的原始地形重新编译，避免把建筑自身的地基当成天然地面。
+- 活动预览的 design/validation 和图片描述预览方案，verification 核对已执行的建筑；二者可以不同。包含 interior 时规划和截图统一使用至少 85° 的 fov，图片结果带实际 fov。
 - 无客户端（专用服务器）时没有图片，带 `note`。
 
 ### `arch.revise`
@@ -417,3 +428,4 @@
 - 每次修改 `revision` 和 `roundsSinceApproval` 加 1；达到 `config.maxRevisionRounds`（默认 3）后返回 `-32602 revision limit reached`，直到用户同意（`userApproved: true` 归零）。
 - 更新预览也必须通过写入安全检查；失败时保留方案、预览和计数器。`userApproved` 只在修改成功时重置计数；对已建成建筑的未确认建议不修改计数。
 - result：`{"building", "diff": {"changed", "removed", "unchanged", "components": [...]}, "validation", "applied", "job"?, "revision", "roundsLeft"}`
+- 写任务进行中拒绝继续修改（`-32602`，带任务说明）；incomplete 建筑应先 undo 或通过完整方案再次放置修复。无方块变化时不创建写任务。Bridge 会等待嵌套 job，超时仍返回原报告和当前 job 状态；随后用 job.status 等待完成再核对。

@@ -37,6 +37,12 @@ public final class RestoreJob extends Job {
 			throw new RpcException(RpcException.INTERNAL_ERROR, "dimension no longer exists: " + changes.dimension().location());
 		}
 		total = changes.size();
+		try {
+			changes.restoreStarted(id());
+		} catch (RuntimeException e) {
+			returnToSource();
+			throw e;
+		}
 	}
 
 	@Override
@@ -65,12 +71,16 @@ public final class RestoreJob extends Job {
 		} else {
 			history.pushUndo(changes);
 		}
+		changes.restoreFinished(undo, true);
 	}
 
 	@Override
 	protected void onAborted(MinecraftServer server) {
 		// Snapshots are absolute, so running the same undo/redo again later completes it.
 		returnToSource();
+		if (changes != null) {
+			changes.restoreFinished(undo, false);
+		}
 	}
 
 	private void returnToSource() {

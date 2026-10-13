@@ -92,8 +92,10 @@ impl McServer {
     async fn call_job_waiting(&self, method: &str, params: Value, job_wait: Duration) -> Result<Value, McError> {
         // Subscribe before submitting so the finish notification cannot be missed.
         let mut notes = self.mc.subscribe();
-        let submitted = self.mc.call(method, params).await?;
-        let Some(job_id) = submitted.get("jobId").and_then(Value::as_u64) else {
+        let mut submitted = self.mc.call(method, params).await?;
+        let nested = submitted.get("jobId").is_none();
+        let job = if nested { &submitted["job"] } else { &submitted };
+        let Some(job_id) = job.get("jobId").and_then(Value::as_u64) else {
             return Ok(submitted);
         };
 
@@ -128,7 +130,12 @@ impl McServer {
                 data: None,
             }));
         }
-        Ok(finished)
+        if nested {
+            submitted["job"] = finished;
+            Ok(submitted)
+        } else {
+            Ok(finished)
+        }
     }
 }
 
@@ -228,6 +235,16 @@ mod tests {
                         Some(json!({"jobId": 2, "state": "failed", "error": "nothing to undo"})),
                     ),
                     "world.clearRegion" => (json!({"jobId": 3, "state": "queued"}), None),
+                    "arch.revise" if req["params"]["preview"] == true => (json!({"applied": "preview", "diff": {"changed": 2}}), None),
+                    "arch.revise" if req["params"]["slow"] == true => (json!({"applied": "world", "diff": {"changed": 2}, "job": {"jobId": 3, "state": "queued"}}), None),
+                    "arch.revise" if req["params"]["fail"] == true => (
+                        json!({"applied": "world", "job": {"jobId": 2, "state": "queued"}}),
+                        Some(json!({"jobId": 2, "state": "failed", "error": "building failed"})),
+                    ),
+                    "arch.revise" => (
+                        json!({"applied": "world", "diff": {"changed": 2}, "job": {"jobId": 4, "state": "queued"}}),
+                        Some(json!({"jobId": 4, "state": "done", "changed": 2})),
+                    ),
                     "job.status" => (json!({"jobId": 3, "state": "running", "done": 10, "total": 99}), None),
                     m => panic!("unexpected {m}"),
                 };
@@ -276,6 +293,32 @@ mod tests {
         assert_eq!(r["state"], "running");
         assert_eq!(r["jobId"], 3);
         assert!(r["note"].as_str().unwrap().contains("job_status"));
+    }
+
+    #[tokio::test]
+    async fn revision_waits_for_nested_job_and_keeps_the_report() {
+        let r = server().await.call_job("arch.revise", json!({})).await.unwrap();
+        assert_eq!(r, json!({"applied": "world", "diff": {"changed": 2}, "job": {"jobId": 4, "state": "done", "changed": 2}}));
+    }
+
+    #[tokio::test]
+    async fn preview_revision_returns_without_waiting_for_a_job() {
+        let r = server().await.call_job("arch.revise", json!({"preview": true})).await.unwrap();
+        assert_eq!(r, json!({"applied": "preview", "diff": {"changed": 2}}));
+    }
+
+    #[tokio::test]
+    async fn failed_revision_job_is_an_error() {
+        let e = server().await.call_job("arch.revise", json!({"fail": true})).await.unwrap_err();
+        assert!(e.to_string().contains("building failed"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn slow_revision_keeps_the_report_and_returns_polling_instructions() {
+        let r = server().await.call_job("arch.revise", json!({"slow": true})).await.unwrap();
+        assert_eq!(r["diff"]["changed"], 2);
+        assert_eq!(r["job"]["state"], "running");
+        assert!(r["job"]["note"].as_str().unwrap().contains("job_status"));
     }
 
     #[test]

@@ -4,7 +4,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.jobs.PlaceJob.Placement;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
@@ -20,9 +23,11 @@ import java.util.Map;
  */
 public final class BlockList {
 	private final Long2ObjectLinkedOpenHashMap<BlockState> blocks = new Long2ObjectLinkedOpenHashMap<>();
+	private final LongOpenHashSet chunks = new LongOpenHashSet();
 	private @Nullable Region bounds;
 
 	public void put(BlockPos pos, BlockState state) {
+		chunks.add(ChunkPos.asLong(pos.getX() >> 4, pos.getZ() >> 4));
 		if (blocks.put(pos.asLong(), state) == null) {
 			bounds = bounds == null ? new Region(pos.immutable(), pos.immutable()) : bounds.include(pos);
 		}
@@ -35,6 +40,8 @@ public final class BlockList {
 	public int size() {
 		return blocks.size();
 	}
+	/** Exact touched chunks; sparse plans must not generate the gap between distant components. */
+	public LongSet chunks() { return it.unimi.dsi.fastutil.longs.LongSets.unmodifiable(chunks); }
 
 	public @Nullable Region bounds() {
 		return bounds;

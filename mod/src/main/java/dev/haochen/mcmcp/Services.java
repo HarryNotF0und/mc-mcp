@@ -17,8 +17,9 @@ import java.util.function.BiConsumer;
 public record Services(McMcpConfig config, Guard guard, History history, JobManager jobs,
 					   ScriptSandbox scripts, BlueprintStore blueprints, PreviewManager previews,
 					   AgentManager agents, BuildingRegistry buildings) {
-	public static Services create(McMcpConfig config, Path gameDir, BiConsumer<String, JsonObject> notifier) {
-		BuildingRegistry buildings = new BuildingRegistry(gameDir.resolve("mcmcp").resolve("buildings"));
+	public static Services create(McMcpConfig config, Path gameDir, Path worldDir, BiConsumer<String, JsonObject> notifier) {
+		BuildingRegistry buildings = new BuildingRegistry(worldDir.resolve("mcmcp").resolve("buildings"),
+				System.getProperty("fabric-api.gametest") == null ? gameDir.resolve("mcmcp").resolve("buildings") : null);
 		return new Services(config, new Guard(config), new History(config.historySize),
 				new JobManager(config.blocksPerTick, notifier), new ScriptSandbox(),
 				new BlueprintStore(gameDir.resolve("mcmcp").resolve("blueprints")),
@@ -27,5 +28,6 @@ public record Services(McMcpConfig config, Guard guard, History history, JobMana
 
 	public void shutdown() {
 		scripts.shutdown();
+		buildings.close();
 	}
 }

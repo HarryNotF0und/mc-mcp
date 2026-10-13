@@ -31,7 +31,7 @@ public record BlockSnapshot(BlockState state, @Nullable CompoundTag nbt) {
 		if (nbt != null) {
 			BlockEntity be = level.getBlockEntity(pos);
 			if (be != null) {
-				be.loadWithComponents(nbt, level.registryAccess());
+				be.loadWithComponents(nbt.copy(), level.registryAccess());
 				be.setChanged();
 			}
 		}

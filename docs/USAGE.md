@@ -281,6 +281,17 @@ available to repair with `revise_building`. An explicit `{"previewId": 1, "ignor
 overrides architectural validation; region and size limits still apply. Failed revisions leave
 the design and counters unchanged, and revisions must keep the building's name.
 
+`get_building` reports `building` with a `jobId` while a write is queued or running, and `built`
+only after it finishes. An interrupted write is `incomplete`: undo it or place the complete
+plan again before revising. `revise_building` waits for its world job; if the nested `job.state`
+is still `queued`/`running`, poll `job_status` before another revision or inspection.
+
+A preview of an existing building keeps its applied design. Discard restores that design;
+confirm applies a diff and restores removed parts, including original chest/sign data.
+Undo/redo restores the matching design too. Buildings are stored per save in
+`<world save>/mcmcp/buildings/`, with their dimension and baselines. Old game-directory plan
+files import as unbound designs; previews themselves and undo history remain session-only.
+
 ## Build scripts in short
 
 ```js
@@ -386,10 +397,10 @@ SSH tunnel (`ssh -L 25580:127.0.0.1:25580 server`) and keep `MCMCP_URL` at its d
 ```bash
 cd mod && ./gradlew build          # build the mod
 cd mod && ./gradlew runClient      # start the game with the mod (and WorldEdit) in dev
-cd mod && ./gradlew runGametest    # 32 in-game tests (building, undo, scripts, blueprints,
+cd mod && ./gradlew runGametest    # 46 in-game tests (building, undo, scripts, blueprints,
                                    # previews, WorldEdit, the survival agent, site analysis
                                    # and building plans)
-cd bridge && cargo test            # 18 bridge tests (against a fake mod)
+cd bridge && cargo test            # 22 bridge tests (against a fake mod)
 ```
 
 Design notes are in [`docs/decisions.md`](decisions.md), the manual test checklist is in

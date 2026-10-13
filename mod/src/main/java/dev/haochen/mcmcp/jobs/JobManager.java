@@ -60,6 +60,7 @@ public final class JobManager {
 		Job job = get(id);
 		if (job.state() == Job.State.QUEUED) {
 			queue.remove(job);
+			parallel.remove(job);
 			finish(job, Job.State.CANCELLED, null);
 		} else if (job == current) {
 			current = null;
@@ -111,6 +112,7 @@ public final class JobManager {
 
 	private void tickParallel(MinecraftServer server) {
 		for (Job job : java.util.List.copyOf(parallel)) {
+			if (job.state().finished()) { parallel.remove(job); continue; }
 			try {
 				if (job.state() == Job.State.QUEUED) {
 					job.markStarted();
@@ -154,6 +156,7 @@ public final class JobManager {
 
 	private void finish(Job job, Job.State state, @Nullable String error) {
 		job.markFinished(state, error);
+		job.onFinished();
 		notifier.accept("job.finished", job.toJson());
 	}
 

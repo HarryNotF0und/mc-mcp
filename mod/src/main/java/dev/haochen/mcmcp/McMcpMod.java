@@ -18,6 +18,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.level.storage.LevelResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,7 +72,12 @@ public class McMcpMod implements ModInitializer {
 		McMcpMod.server = server;
 		// Re-read on every server start so edits apply without restarting the game.
 		McMcpConfig config = McMcpConfig.loadOrCreate(FabricLoader.getInstance().getConfigDir().resolve("mcmcp.json"));
-		services = Services.create(config, FabricLoader.getInstance().getGameDir(), (method, params) -> {
+		java.nio.file.Path worldDir = server.getWorldPath(LevelResource.ROOT);
+		if (System.getProperty("fabric-api.gametest") != null) {
+			try { worldDir = java.nio.file.Files.createTempDirectory(worldDir, "mcmcp-gametest-"); }
+			catch (java.io.IOException e) { throw new IllegalStateException("could not isolate GameTest building registry", e); }
+		}
+		services = Services.create(config, FabricLoader.getInstance().getGameDir(), worldDir, (method, params) -> {
 			if (wsServer != null) {
 				wsServer.notifyAll(method, params);
 			}

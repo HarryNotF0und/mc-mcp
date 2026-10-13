@@ -51,6 +51,7 @@ public final class PlanCompiler {
 	private final Map<Long, BlockState> fillColumns = new LinkedHashMap<>();
 	/** First local y to fill downwards from, per fill column (below the column's surface block). */
 	private final Map<Long, Integer> fillFrom = new LinkedHashMap<>();
+	private it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<WorldCell> worldCells;
 	int foundationMaxDepth;
 
 	public int foundationDepth() {
@@ -667,13 +668,15 @@ public final class PlanCompiler {
 
 	/** Every compiled block by world position (as {@code BlockPos.asLong}), with its component. */
 	public it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<WorldCell> worldCells() {
+		if (worldCells != null) return worldCells;
 		var out = new it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap<WorldCell>();
 		for (var e : g.cells().long2ObjectEntrySet()) {
 			BlockPos l = BlockPos.of(e.getLongKey());
 			out.put(g.world(l.getX(), l.getY(), l.getZ()).asLong(),
 					new WorldCell(e.getValue().state().rotate(g.rotation), e.getValue().component()));
 		}
-		return out;
+		worldCells = out;
+		return worldCells;
 	}
 
 	/** World blocks (rotated states) for placement. */

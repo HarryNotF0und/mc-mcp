@@ -53,7 +53,7 @@ public final class PreviewManager {
 			Preview p = oldest.next();
 			oldest.remove();
 			onRemoved.accept(p.id());
-			send(p.plan(), false);
+			sendVisible(p.plan());
 		}
 		Preview preview = new Preview(nextId++, plan);
 		previews.put(preview.id(), preview);
@@ -68,13 +68,13 @@ public final class PreviewManager {
 	public JsonObject confirm(Services s, int id) {
 		// Submit before removing: a failed safety check must leave the design available.
 		JsonObject job = plan(id).submit(s);
-		take(id);
+		discard(id);
 		return job;
 	}
 
 	/** Shows the real blocks again. */
 	public void discard(int id) {
-		send(take(id).plan(), false);
+		sendVisible(take(id).plan());
 	}
 
 	private Preview take(int id) {
@@ -98,7 +98,7 @@ public final class PreviewManager {
 	 * Changes an active preview in place: only {@code changed} blocks are re-sent, and positions in
 	 * {@code removed} (no longer part of the design) show the real world again.
 	 */
-	public void update(Services s, int id, Plan plan, Map<BlockPos, BlockState> changed, java.util.Collection<BlockPos> removed) {
+	public void update(Services s, int id, Plan plan) {
 		if (!previews.containsKey(id)) {
 			throw new RpcException(RpcException.INVALID_PARAMS, "no active preview with id " + id);
 		}
@@ -106,13 +106,22 @@ public final class PreviewManager {
 		if (previews.get(id).plan().level() != plan.level()) {
 			throw new RpcException(RpcException.INVALID_PARAMS, "a preview cannot change dimension");
 		}
+		Plan before = previews.get(id).plan();
+		Map<BlockPos, BlockState> changed = new LinkedHashMap<>();
+		List<BlockPos> removed = new ArrayList<>();
+		for (var it = plan.blocks().placements(); it.hasNext();) {
+			Placement p = it.next(); if (before.blocks().get(p.pos().asLong()) != p.state()) changed.put(p.pos(), p.state());
+		}
+		for (var it = before.blocks().placements(); it.hasNext();) {
+			Placement p = it.next(); if (plan.blocks().get(p.pos().asLong()) == null) removed.add(p.pos());
+		}
 		previews.put(id, new Preview(id, plan));
 		List<Placement> fake = new ArrayList<>();
 		changed.forEach((pos, state) -> fake.add(new Placement(pos, state)));
-		send(plan.level(), fake.iterator(), true);
+		sendVisible(plan.level(), fake.iterator());
 		List<Placement> real = new ArrayList<>();
-		removed.forEach(pos -> real.add(new Placement(pos, null)));
-		send(plan.level(), real.iterator(), false);
+		removed.forEach(pos -> real.add(new Placement(pos, (BlockState) null)));
+		sendVisible(plan.level(), real.iterator());
 	}
 
 	/** The plan behind an active preview. */
@@ -128,7 +137,32 @@ public final class PreviewManager {
 		return previews.containsKey(id);
 	}
 
+	/** Resolve affected cells against the newest remaining preview before restoring the display. */
+	private void sendVisible(Plan plan) { sendVisible(plan.level(), plan.blocks().placements()); }
+	private void sendVisible(ServerLevel level, Iterator<Placement> positions) {
+		if (level.players().isEmpty()) return;
+		List<Placement> visible = new ArrayList<>();
+		while (positions.hasNext()) {
+			BlockPos pos = positions.next().pos();
+			visible.add(new Placement(pos, visibleState(level, pos)));
+		}
+		send(level, visible.iterator(), true);
+	}
+
+	/** Server-thread view of the composed preview display; newest overlapping preview wins. */
+	public BlockState visibleState(ServerLevel level, BlockPos pos) {
+		BlockState state = level.getBlockState(pos);
+		for (Preview p : previews.values()) {
+			if (p.plan().level() != level) continue;
+			BlockState fake = p.plan().blocks().get(pos.asLong());
+			if (fake != null) state = fake;
+		}
+		return state;
+	}
+
 	private static int send(ServerLevel level, Iterator<Placement> placements, boolean fake) {
+		List<ServerPlayer> players = level.players();
+		if (players.isEmpty()) return 0;
 		Long2ObjectOpenHashMap<List<Placement>> bySection = new Long2ObjectOpenHashMap<>();
 		for (Iterator<Placement> it = placements; it.hasNext(); ) {
 			Placement p = it.next();
@@ -137,7 +171,6 @@ public final class PreviewManager {
 			}
 			bySection.computeIfAbsent(SectionPos.asLong(p.pos()), k -> new ArrayList<>()).add(p);
 		}
-		List<ServerPlayer> players = level.players();
 		Registry<Biome> biomes = level.registryAccess().registryOrThrow(Registries.BIOME);
 		for (var e : bySection.long2ObjectEntrySet()) {
 			SectionPos sectionPos = SectionPos.of(e.getLongKey());

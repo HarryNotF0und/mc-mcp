@@ -99,7 +99,9 @@ rounds show the user and ask; never change a built building without asking (conf
 fill_region for boxes, place_blocks for details. Run scripts with dryRun: true first and check the block \
 count and bounding box, or show it with preview, look at it with orbit_shots, then confirm_preview.\n\
 4. Build. Each call is one undoable change. For big builds the tool may return state \"running\"; poll job_status. \
-A \"warning\" that the game is paused means jobs wait until the player closes the pause menu.\n\
+A \"warning\" that the game is paused means jobs wait until the player closes the pause menu. After a world revision, \
+wait until its nested job is done before inspecting or revising again. A building marked incomplete needs undo or \
+full replacement before further revisions. Undo and redo restore the matching building design too.\n\
 5. Verify with orbit_shots / screenshot (single-player) and get_layer_slices. If something is wrong, undo and rebuild \
 rather than patching blindly.\n\
 \n\

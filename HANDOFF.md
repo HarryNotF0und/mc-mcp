@@ -1,6 +1,6 @@
 # 交接文档（给接手的 Codex / 其他 Agent）
 
-最后更新：2026-10-13，基于提交 `0336daa`（交接文档，v2 阶段 2 后），追加代码审查与可靠性修复。先读本文件，再读 `CLAUDE.md`（约定与常用命令）和 `PLAN-v2.md`（当前计划，英文）。审查结果和待办见 [docs/review-2026-10-13.md](docs/review-2026-10-13.md)。
+最后更新：2026-10-13，基于提交 `d0ade3b`，追加登记表生命周期/持久化修复与性能优化（D28）。先读本文件，再读 `CLAUDE.md`（约定与常用命令）和 `PLAN-v2.md`（当前计划，英文）。完整审查和测量结果见 [docs/review-2026-10-13.md](docs/review-2026-10-13.md)。
 
 ## 1. 项目是什么
 
@@ -9,7 +9,7 @@ MC-MCP 让 AI 通过 MCP 在 Minecraft 里看、建、玩。
 - `mod/`：Fabric 模组，Minecraft **1.21.1**、Java 21、Mojang 映射。它在 `127.0.0.1:25580` 上提供 WebSocket + JSON-RPC 服务，用 token 鉴权，token 在游戏目录的 `config/mcmcp.json`。
 - `bridge/`：Rust MCP 服务（`rmcp` 3.5.1，stdio）。每个 MCP tool 转成一次 JSON-RPC 调用。
 - `protocol/spec.md`：协议的唯一权威来源（中文）。修改协议时，`spec.md`、`mod/` 和 `bridge/` 三处要同时改。
-- `docs/USAGE.md`：用户手册，含全部 39 个工具。`docs/building-plan.md`：建筑方案格式。`docs/decisions.md`：设计决策 D1–D27。`docs/manual-test.md`：手动测试清单。
+- `docs/USAGE.md`：用户手册，含全部 39 个工具。`docs/building-plan.md`：建筑方案格式。`docs/decisions.md`：设计决策 D1–D28。`docs/manual-test.md`：手动测试清单。
 
 PLAN.md（v1，阶段 1–5）已全部完成。PLAN-v2.md 的进度：
 
@@ -34,15 +34,15 @@ PLAN-v2 的硬性规则：
 
 ```bash
 cd mod && ./gradlew build            # 构建模组
-cd mod && ./gradlew runGametest      # 32 个 GameTest；结果在 mod/build/gametest/junit.xml
+cd mod && ./gradlew runGametest      # 46 个 GameTest；结果在 mod/build/gametest/junit.xml
 cd mod && ./gradlew runClient        # 带模组启动游戏
 cd mod && ./gradlew genSources       # 反编译源码；不确定 MC API 时查源码，别凭印象
-cd bridge && cargo test              # 18 个单元测试
+cd bridge && cargo test              # 22 个单元测试
 cd bridge && cargo clippy --all-targets   # 保持 0 警告
 cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridge(.exe)
 ```
 
-当前结果：`gradlew build runGametest` 成功，GameTest 32/32 通过，`cargo test` 18/18 通过，`cargo clippy --all-targets -- -D warnings` 通过。新增的四个早期回归测试在原代码上均失败，修复后通过。Windows 沙箱中测试需要 Gradle 缓存和 localhost socket 权限；无权限时 Rust 的 socket 错误不是代码失败。`cargo fmt --check` 仍报告仓库原有的格式差异。
+当前结果：`gradlew build runGametest` 成功，GameTest 46/46 通过，`cargo test` 22/22、`cargo clippy --all-targets -- -D warnings`、`cargo build --release` 均通过。上轮四个回归测试及本轮排队状态/容器恢复测试在旧代码上失败，修复后通过。Windows 沙箱中测试需要 Gradle 缓存和 localhost socket 权限；无权限时 Rust 的 socket 错误不是代码失败。`cargo fmt --check` 的原有格式差异尚未做全库调整。性能测量：1791 方块建筑的 worldCells() 预热后调用 1000 次，58.4216 ms / 292,784,000 字节分配 → 0.0800 ms / 0 字节；这是方法局部测量，不是整体 TPS 测量。
 
 ### 实机调试（Windows + Git Bash）
 
@@ -55,7 +55,7 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
 - **线程**：读写世界只能在服务器主线程。`RpcDispatcher` 提供三种注册方式：`onMainThread`、`onNetworkThread`、`async`。`async` 的处理器返回 `CompletableFuture`，适合截图这类需要等待的调用。
 - **写世界**：一律通过 `jobs/`（`PlaceJob`、`RestoreJob` 按 FIFO 执行，每 tick 有预算）和 `BlockSnapshot.SET_FLAGS`，并记录到 `ChangeSet`，以便撤销和重做（D6）。
   - `SET_FLAGS = UPDATE_CLIENTS | UPDATE_KNOWN_SHAPE | UPDATE_SUPPRESS_DROPS`，**不发邻居更新**。这对阶段 3 很关键，见 §4。
-- **`Plan`**（`api/Plan.java`）：先校验，再 `submit(services)` 成为任务。
+- **`Plan`**（`api/Plan.java`）：先校验，再 `submit(services)` 成为任务。稀疏列表检查实际涉及的区块，不加载包围盒中的空白区；建筑通过 `BuildingJob` 提交，执行时记录原始快照，结束与 undo/redo 同步登记状态。
 - **`PreviewManager`**：只发给客户端的假方块（区块段包），不改动世界。
 - **截图**：`ViewHook`，实现在 `src/client`，只有单人客户端可用。
 - **假玩家**：`agent/`，`AgentPlayer`，A* 寻路（`Pathfinder`）。
@@ -66,7 +66,7 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
   - 局部坐标：从正面看 x 从左到右，z 从后到前，y=0 是地板层。
   - 朝向与旋转：south=不转，west=顺时针 90°，north=180°，east=逆时针 90°。origin 是旋转后占地的最小角。
 - **阶段 2 新增**：
-  - `BuildingRegistry`：按 name 登记，存盘到 `<游戏目录>/mcmcp/buildings/`。
+  - `BuildingRegistry`：按 name 登记，存盘到 `<存档目录>/mcmcp/buildings/`；版本化元数据包含维度、编译基准、原始 NBT 和状态，串行后台写入/同名合并，正常关闭时 flush。旧游戏目录的纯方案只作为 planned 设计导入。
   - `PlanOps`：update / remove / add / set 操作。
   - `DesignMetrics`：对称、窗墙比、屋顶、需求检查。
   - `ViewPlanner`：自动视点，带遮挡判断。
@@ -81,7 +81,7 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
    - 现状：用 `SET_FLAGS` 放下的红石线、中继器、活塞不会收到邻居更新，可能“放好了但不工作”，也可能状态不一致。
    - 建议：给红石相关的放置加一种“有界更新模式”。放置完成后，对本次改动的位置及其 6 个邻居调用 `level.updateNeighborsAt` / `neighborChanged`，或者对红石方块用 `Block.UPDATE_ALL` 放置。
    - 要求：影响范围限制在改动包围盒外扩 1 格。撤销（`RestoreJob`）时同样处理。
-   - 把取舍写进 `decisions.md`，编号 D28（D27 已用于本轮可靠性修复）。
+   - 把取舍写进 `decisions.md`，编号 D29（D27、D28 已用于可靠性修复）。
 2. **新增 RPC 和工具**：
    - `redstone.inspect`：网络图，包括电源、导线功率、中继器延迟和朝向、比较器、活塞的伸缩状态、侦测器、门。
    - `redstone.trigger`：按钮、拉杆、压力板，或者放置/移除红石块。
@@ -113,12 +113,13 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
 - **验证器**：世界核对会忽略 open/powered/occupied/lit，并按邻居规范化连接形状（`ArchApi.verify`）。阶段 3 加红石后，powered 状态是否该参与核对需要重新考虑。
 - `PlanOps` 的 `set` 用 `field`（顶层字段），不是路径。屋顶通过它的 id 用 `update` 修改。
 - **审查修复（D27）**：场地参数在访问区块前校验；完整方案与 ops 都不可改建筑名称；预览修改执行写入安全检查；失败的修改/确认保留当前方案和预览，失败的 `userApproved` 不重置轮数；自动淘汰清除登记表 ID；确认有建筑校验错误的预览返回 1007（可显式 `ignoreValidation: true`）；核对保留完整深地基列表，修改用原始地形编译，避免误删地基。脚本文档里的循环内 `const` 示例也已改为 `let`。
-- **待修复的登记表生命周期/持久化问题**：`built` 在任务提交时就设置，取消/失败未同步；保存文件只有方案，缺少维度和建造状态，且目录按游戏而非世界隔离；已建成建筑同名新预览覆盖核对基准；删除部件只还原原始 BlockState，丢失容器 NBT。具体触发条件和建议见审查文档。继续红石阶段前应先处理这些数据一致性问题。
+- **登记表问题已修复（D28）**：设计与已执行基准分离；排队/运行状态为 building，部分失败为 incomplete；确认/取消/undo/redo 同步基准。同名预览可安全丢弃/差分确认，删除部件恢复 NBT。持久化按存档隔离并保留维度；列表发现存盘记录，旧数据只作未绑定设计导入。确认保持预览方块范围，不随地形变化扩大。假玩家排队取消不再继续运行且释放 busy。邻居形状修改保留容器内容。Bridge 等待修改中的嵌套任务，超时返回报告和 job 状态。
+- **后续限制**：截图视觉质量/真实客户端预览叠加仍需实机验证；自动化只测合成状态和截图 FOV 回调。登记 JSON 与 Minecraft 世界文件并非跨文件崩溃事务，骤停/磁盘错误后需核对。大型方案完整编译/重载仍在主线程，未做全流程性能测量。GameTest 登记目录按运行隔离，避免测试残留污染。
 
 ## 6. 需要用户处理的事
 
 - 删除旧测试世界 `mod/run/saves/mcmcp-test`（玩家已死亡）。删除数据请让用户自己做，不要绕过安全检查。
-- push 前先问用户。
+- push 前需要用户授权（当前聊天用户已明确授权完成后推送 main）。
 
 ## 7. 本次（阶段 2）改动的文件
 

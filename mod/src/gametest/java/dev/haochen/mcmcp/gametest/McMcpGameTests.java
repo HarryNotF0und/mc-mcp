@@ -35,6 +35,39 @@ import java.util.function.Supplier;
 public class McMcpGameTests implements FabricGameTest {
 	private static final String EMPTY = FabricGameTest.EMPTY_STRUCTURE;
 
+	@GameTest(template = EMPTY, batch = "history_chest_shape")
+	public void joiningChestHalvesPreservesContentsAddedBetweenSlices(GameTestHelper helper) {
+		BlockPos local = new BlockPos(2, 0, 2), pos = helper.absolutePos(local);
+		helper.setBlock(local, Blocks.AIR);
+		var manager = new dev.haochen.mcmcp.jobs.JobManager(1, (method, params) -> {});
+		var right = Blocks.CHEST.defaultBlockState().setValue(net.minecraft.world.level.block.ChestBlock.TYPE,
+				net.minecraft.world.level.block.state.properties.ChestType.RIGHT);
+		var source = java.util.List.of(new dev.haochen.mcmcp.jobs.PlaceJob.Placement(pos, Blocks.CHEST.defaultBlockState()),
+				new dev.haochen.mcmcp.jobs.PlaceJob.Placement(pos.east(), right)).iterator();
+		manager.submit(new dev.haochen.mcmcp.jobs.PlaceJob("test", "chest shapes", helper.getLevel(), 2, source, McMcpMod.services().history()));
+		manager.tick(helper.getLevel().getServer());
+		ChestBlockEntity chest = helper.getBlockEntity(local); chest.setItem(0, new ItemStack(Items.DIAMOND, 5));
+		manager.tick(helper.getLevel().getServer());
+		helper.assertBlockProperty(local, net.minecraft.world.level.block.ChestBlock.TYPE, net.minecraft.world.level.block.state.properties.ChestType.LEFT);
+		helper.assertTrue(chest.getItem(0).is(Items.DIAMOND) && chest.getItem(0).getCount() == 5, "joining the chest preserves its contents");
+		helper.succeed();
+	}
+
+	@GameTest(template = EMPTY, batch = "history_live_container")
+	public void unchangedNeighborShapeDoesNotClearContainerContents(GameTestHelper helper) {
+		BlockPos local = new BlockPos(2, 0, 2), pos = helper.absolutePos(local);
+		helper.setBlock(local, Blocks.AIR);
+		var manager = new dev.haochen.mcmcp.jobs.JobManager(1, (method, params) -> {});
+		var source = java.util.List.of(new dev.haochen.mcmcp.jobs.PlaceJob.Placement(pos, Blocks.CHEST.defaultBlockState()),
+				new dev.haochen.mcmcp.jobs.PlaceJob.Placement(pos.east(), Blocks.STONE.defaultBlockState())).iterator();
+		manager.submit(new dev.haochen.mcmcp.jobs.PlaceJob("test", "neighbor shapes", helper.getLevel(), 2, source, McMcpMod.services().history()));
+		manager.tick(helper.getLevel().getServer());
+		ChestBlockEntity chest = helper.getBlockEntity(local); chest.setItem(0, new ItemStack(Items.DIAMOND, 5));
+		manager.tick(helper.getLevel().getServer());
+		helper.assertTrue(chest.getItem(0).is(Items.DIAMOND) && chest.getItem(0).getCount() == 5, "unchanged neighbor refresh preserves items added between job slices");
+		helper.succeed();
+	}
+
 	@GameTest(template = EMPTY, batch = "history_fill")
 	public void hollowFillThenUndoRestoresBlocksAndChestContents(GameTestHelper helper) {
 		allowEverywhere();
