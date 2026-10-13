@@ -6,7 +6,6 @@ import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.McMcpMod;
 import dev.haochen.mcmcp.Services;
 import dev.haochen.mcmcp.net.RpcDispatcher;
-import dev.haochen.mcmcp.script.ScriptSandbox;
 import dev.haochen.mcmcp.world.Guard;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -25,32 +24,38 @@ public final class ScriptApi {
 
 	public static CompletableFuture<JsonElement> runScript(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
+		boolean dryRun = Params.bool(params, "dryRun", false);
+		return plan(server, params).thenCompose(plan -> server.submit(() -> {
+			if (dryRun) {
+				JsonObject stats = plan.stats();
+				stats.addProperty("dryRun", true);
+				return (JsonElement) stats;
+			}
+			JsonObject job = plan.submit(s);
+			job.add("script", plan.stats());
+			return job;
+		}));
+	}
+
+	/** Runs the script described by {@code params} ({@code source, origin, dimension?, loadChunks?}). */
+	public static CompletableFuture<Plan> plan(MinecraftServer server, JsonObject params) {
+		Services s = McMcpMod.services();
 		String source = Params.string(params, "source");
 		BlockPos origin = Params.pos(params, "origin");
-		boolean dryRun = Params.bool(params, "dryRun", false);
 		boolean loadChunks = Params.bool(params, "loadChunks", false);
 		// Level lookup reads a map that is fixed after startup, so it is safe off the server thread.
 		ServerLevel level = Guard.level(server, Params.string(params, "dimension", WorldApi.DEFAULT_DIMENSION));
 
 		return s.scripts()
 				.run(server, level, source, origin, s.guard(), s.config().scriptTimeoutMs, s.config().maxVolumePerOp, loadChunks)
-				.thenCompose(result -> server.submit(() -> finish(s, level, origin, result, dryRun, loadChunks)));
-	}
-
-	private static JsonElement finish(Services s, ServerLevel level, BlockPos origin, ScriptSandbox.Result result,
-									  boolean dryRun, boolean loadChunks) {
-		JsonObject script = result.blocks().stats(20);
-		JsonArray logs = new JsonArray();
-		result.logs().forEach(logs::add);
-		script.add("logs", logs);
-		script.addProperty("scriptMs", result.elapsedMs());
-		if (dryRun) {
-			script.addProperty("dryRun", true);
-			return script;
-		}
-		JsonObject job = BuildApi.submitList(s, level, result.blocks(), "runScript",
-				"script at " + origin.toShortString() + " (" + result.blocks().size() + " blocks)", loadChunks);
-		job.add("script", script);
-		return job;
+				.thenApply(result -> {
+					JsonObject stats = result.blocks().stats(20);
+					JsonArray logs = new JsonArray();
+					result.logs().forEach(logs::add);
+					stats.add("logs", logs);
+					stats.addProperty("scriptMs", result.elapsedMs());
+					return new Plan(level, result.blocks(), "runScript",
+							"script at " + origin.toShortString() + " (" + result.blocks().size() + " blocks)", loadChunks, stats);
+				});
 	}
 }

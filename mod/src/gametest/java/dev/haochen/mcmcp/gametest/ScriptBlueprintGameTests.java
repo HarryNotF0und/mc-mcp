@@ -133,6 +133,29 @@ public class ScriptBlueprintGameTests implements FabricGameTest {
 	}
 
 	@GameTest(template = EMPTY)
+	public void previewLeavesTheWorldAloneUntilConfirmed(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		var server = helper.getLevel().getServer();
+		var s = McMcpMod.services();
+		BlockPos a = new BlockPos(1, 1, 1), b = new BlockPos(2, 1, 1);
+		JsonObject params = blueprintParams(helper, "{\"palette\":{\"G\":\"minecraft:gold_block\"},\"layers\":[[\"GG\"]]}");
+		params.add("origin", Json.blockPos(helper.absolutePos(a)));
+		JsonObject preview = s.previews().create(s, BlueprintApi.plan(server, params));
+		int id = preview.get("previewId").getAsInt();
+		helper.assertBlockPresent(Blocks.AIR, a);
+		helper.assertBlockPresent(Blocks.AIR, b);
+		int[] job = {s.previews().confirm(s, id).get("jobId").getAsInt()};
+		McMcpGameTests.expectCode(helper, RpcException.INVALID_PARAMS, () -> s.previews().confirm(s, id));
+		helper.startSequence()
+				.thenWaitUntil(() -> McMcpGameTests.assertDone(helper, job[0]))
+				.thenExecute(() -> {
+					helper.assertBlockPresent(Blocks.GOLD_BLOCK, a);
+					helper.assertBlockPresent(Blocks.GOLD_BLOCK, b);
+				})
+				.thenSucceed();
+	}
+
+	@GameTest(template = EMPTY)
 	public void malformedBlueprintsAreRejected(GameTestHelper helper) {
 		McMcpGameTests.allowEverywhere();
 		var server = helper.getLevel().getServer();

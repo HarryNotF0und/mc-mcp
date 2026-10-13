@@ -86,6 +86,8 @@ public final class WorldApi {
 		result.addProperty("dayTime", overworld.getDayTime());
 		result.addProperty("difficulty", server.getWorldData().getDifficulty().getKey());
 		result.addProperty("mspt", Math.round(server.getAverageTickTimeNanos() / 1e4) / 100.0);
+		// Single-player pauses when the pause menu is open (or the window loses focus); jobs then wait.
+		result.addProperty("paused", server.isPaused());
 		return result;
 	}
 

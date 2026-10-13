@@ -77,3 +77,20 @@ GameTest 直接调用 API 处理器，不需要网络；检测到 `-Dfabric-api.
 ## D14. Bridge 的 `run_script` 支持 `sourceFile`（阶段 3）
 
 `run_script` 可传 `sourceFile`（bridge 所在机器上的路径），由 bridge 读取后作为 `source` 发送，方便直接运行 `examples/scripts/` 中的脚本或 AI 先写入文件再执行。协议层仍只有 `source`。
+
+## D15. 预览用 section 更新包，只含计划中的方块（阶段 4）
+
+预览按区块 section 分组，每组发一个 `ClientboundSectionBlocksUpdatePacket`（大预览不会产生几十万个单方块包）。该包的构造函数从一个 `LevelChunkSection` 读取所列位置的状态，所以用一个新建的空 section 只写入计划方块即可。不能用 `PalettedContainer.copy()` 后写入：单值调色板的副本仍把扩容回调指向原容器，写入会抛异常（测试中实际遇到）。恢复时直接用真实 section 构造同样的包。预览前做与真实写入相同的检查，确认时直接提交同一个 Plan。
+
+## D16. 截图：替换相机实体、临时缩放主帧缓冲（阶段 4）
+
+- 相机：把 `Minecraft.cameraEntity` 临时换成一个不加入世界的 `Marker`（眼高为 0，位置即相机位置）；玩家模型因此会出现在画面中。
+- 渲染目标：最初按原版全景截图的做法渲染到单独的 `TextureTarget`，结果是纯白图——`LevelRenderer` 在一帧中途会重新绑定主帧缓冲。改为把主帧缓冲和 `GameRenderer`/`LevelRenderer` 的辅助缓冲临时缩放到请求的分辨率，渲染后截取，再恢复。
+- 渲染前补上 `Minecraft.runTick` 每帧的前置状态（清屏、`FogRenderer.setupNoFog()`、`RenderSystem.enableCull()`）。缺少这一步时画面背面可见、光照全黑。
+- 每个镜头渲染 6 帧（间隔 15 ms），让新进入视野的 section 完成编译上传后再截取。
+- `daylight`（默认开）：只在客户端临时把 `ClientLevelData` 的时间设为 6000，并刷新光照贴图，渲染完恢复；不用 `ClientLevel.setDayTime`，因为它会顺带修改客户端的游戏规则。
+- 只支持客户端与服务器同进程（单人/局域网主机）。专用服务器上的玩家客户端截图需要自定义网络包，暂不做。
+
+## D17. 单人游戏暂停时任务不推进，只提示不绕过（阶段 4）
+
+单人游戏在暂停菜单打开时不执行服务器 tick（`IntegratedServer.tickPaused`），任务不推进，方块变化也不会同步给客户端；默认设置下窗口失焦（例如切到 Claude）也会暂停。我们不 hook 暂停逻辑去强行推进（那需要绕过区块同步等原版流程），而是在 `world.getInfo` 中报告 `paused`，并在提交的任务对象和未完成的 `job.status` 中加 `warning`，提示玩家关闭菜单或按 F3+P 关闭"失焦暂停"。截图不受影响（在客户端线程执行）。

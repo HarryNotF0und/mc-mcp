@@ -17,7 +17,11 @@ public final class JobApi {
 				o.add("jobs", McMcpMod.services().jobs().toJson());
 				return o;
 			}
-			return McMcpMod.services().jobs().get(Params.integer(params, "jobId", 0)).toJson();
+			JsonObject o = McMcpMod.services().jobs().get(Params.integer(params, "jobId", 0)).toJson();
+			if (server.isPaused() && !o.get("state").getAsString().matches("done|failed|cancelled")) {
+				o.addProperty("warning", BuildApi.PAUSED_WARNING);
+			}
+			return o;
 		});
 		dispatcher.onMainThread("job.cancel", (server, params) -> {
 			Params.require(params, "jobId");

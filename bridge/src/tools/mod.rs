@@ -5,6 +5,7 @@ mod build;
 mod jobs;
 mod scripts;
 mod system;
+mod view;
 mod world;
 
 use std::sync::Arc;
@@ -28,8 +29,10 @@ use crate::resources;
 const INSTRUCTIONS: &str = "Controls a running Minecraft world through the mc-mcp mod. \
 Coordinates are integer world coordinates [x, y, z]; y is up; north is -z, east is +x. \
 Regions are {\"min\":[x,y,z],\"max\":[x,y,z]} with both corners inclusive. \
-Recommended workflow: get_player_state / get_area_summary to find the site, get_layer_slices to inspect it, \
-then build with fill_region / place_blocks, and undo if the result is wrong.";
+Recommended workflow (also available as the build_assistant prompt): get_player_state / get_area_summary \
+to find the site, get_layer_slices to inspect it, then build with run_script (read mc://docs/script-api first; \
+use dryRun or preview), fill_region or place_blocks, check the result with orbit_shots / screenshot \
+(single-player), and undo if it is wrong.";
 
 /// An axis-aligned box of blocks; both corners are inclusive.
 #[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
@@ -57,7 +60,8 @@ impl McServer {
                 + Self::world_router()
                 + Self::build_router()
                 + Self::jobs_router()
-                + Self::scripts_router(),
+                + Self::scripts_router()
+                + Self::view_router(),
         }
     }
 

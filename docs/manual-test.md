@@ -4,7 +4,7 @@
 
 ## 准备
 
-1. `cd mod && ./gradlew runClient`，进入一个单人世界（或 `./gradlew runServer`，需先在 `mod/run/eula.txt` 写入 `eula=true`）。
+1. `cd mod && ./gradlew runClient`（可加 `--args="--quickPlaySingleplayer <存档名>"` 直接进入存档），进入一个单人世界。建议在游戏中按 F3+P 关闭"失焦暂停"，否则切到其他窗口时任务会停住（或 `./gradlew runServer`，需先在 `mod/run/eula.txt` 写入 `eula=true`）。
 2. 日志中出现 `MC-MCP listening on ws://127.0.0.1:25580`。
 3. 从 `mod/run/config/mcmcp.json` 复制 `token`。
 4. `cd bridge && cargo build --release`
@@ -41,3 +41,13 @@
 - [ ] 死循环脚本：约 5 秒后返回 `1006`，带循环所在行号；服务器不卡顿（期间 `get_world_info` 的 mspt 正常）。
 - [ ] 建一个带楼梯、原木、门的小结构，`save_blueprint` 带 `name`，再 `place_blueprint` 旋转 90° 放到别处：位置与楼梯朝向、原木轴向、门都正确。
 - [ ] 全部 `undo` 恢复。
+
+## 阶段 4（需要客户端：`runClient` 单人游戏）
+
+- [ ] 自动化：`./gradlew runGametest` 全部通过（含预览：确认前世界不变，确认后放置，重复确认报错）。
+- [ ] `screenshot` 不带参数：与游戏画面一致，无 HUD、无手、无准星；夜里调用时默认 `daylight` 为白天光照。
+- [ ] `preview` 塔脚本：游戏内能看到假方块；此时 `get_layer_slices` 读取同一区域与预览前完全一致（服务器世界未变）；`orbit_shots` 能拍到预览。
+- [ ] 第二个客户端（或走远再回来让区块重新加载）看到的是原始地形。
+- [ ] `discard_preview` 后游戏内恢复原貌；`confirm_preview` 后真实放置，`undo` 可撤销。
+- [ ] 让 AI 建一个有明显错误的建筑（如一侧屋顶楼梯朝向反了），只给它 `orbit_shots`：它应能指出错误并修正。
+- [ ] 暂停游戏（Esc）后提交任务：返回带 `warning`；`get_world_info` 的 `paused` 为 `true`；关闭菜单后任务完成。

@@ -79,9 +79,10 @@ region corners are inclusive.\n\
 2. Plan the structure and its exact coordinates. Pick the ground level from the heightmap.\n\
 3. Prefer one run_script call for anything with repetition or curves (read mc://docs/script-api first), \
 fill_region for boxes, place_blocks for details. Run scripts with dryRun: true first and check the block \
-count and bounding box.\n\
-4. Build. Each call is one undoable change. For big builds the tool may return state \"running\"; poll job_status.\n\
-5. Verify with get_layer_slices (or a screenshot when available). If something is wrong, undo and rebuild \
+count and bounding box, or show it with preview, look at it with orbit_shots, then confirm_preview.\n\
+4. Build. Each call is one undoable change. For big builds the tool may return state \"running\"; poll job_status. \
+A \"warning\" that the game is paused means jobs wait until the player closes the pause menu.\n\
+5. Verify with orbit_shots / screenshot (single-player) and get_layer_slices. If something is wrong, undo and rebuild \
 rather than patching blindly.\n\
 \n\
 Errors: 1001 outside allowed region, 1002 too large, 1003 unknown/blacklisted block, 1004 chunk not loaded \

@@ -9,7 +9,6 @@ import dev.haochen.mcmcp.jobs.Job;
 import dev.haochen.mcmcp.jobs.PlaceJob;
 import dev.haochen.mcmcp.jobs.PlaceJob.Placement;
 import dev.haochen.mcmcp.net.RpcDispatcher;
-import dev.haochen.mcmcp.world.BlockList;
 import dev.haochen.mcmcp.world.Guard;
 import dev.haochen.mcmcp.world.Region;
 import net.minecraft.core.BlockPos;
@@ -132,22 +131,17 @@ public final class BuildApi {
 		Guard.checkChunks(level, region, Params.bool(params, "loadChunks", false));
 	}
 
-	/** Validates a computed block list like any other write, then queues it as one undoable job. */
-	public static JsonObject submitList(Services s, ServerLevel level, BlockList list, String kind, String description,
-										boolean loadChunks) {
-		if (list.size() == 0) {
-			throw Params.invalid("nothing to place: the block list is empty");
-		}
-		s.guard().checkVolume(list.size());
-		s.guard().checkRegion(level, list.bounds());
-		Guard.checkChunks(level, list.bounds(), loadChunks);
-		return submit(s, new PlaceJob(kind, description, level, list.size(), list.placements(), s.history()));
-	}
-
 	static JsonObject submit(Services s, Job job) {
 		s.jobs().submit(job);
-		return job.toJson();
+		JsonObject o = job.toJson();
+		if (McMcpMod.server() != null && McMcpMod.server().isPaused()) {
+			o.addProperty("warning", PAUSED_WARNING);
+		}
+		return o;
 	}
+
+	public static final String PAUSED_WARNING = "the game is paused (pause menu open or window unfocused), so jobs wait; "
+			+ "close the menu, or press F3+P in game to keep running when unfocused";
 
 	private static String describe(Region r) {
 		return r.sizeX() + "x" + r.sizeY() + "x" + r.sizeZ() + " at " + r.min().toShortString();

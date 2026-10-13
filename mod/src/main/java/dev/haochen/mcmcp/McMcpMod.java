@@ -3,11 +3,14 @@ package dev.haochen.mcmcp;
 import dev.haochen.mcmcp.api.BlueprintApi;
 import dev.haochen.mcmcp.api.BuildApi;
 import dev.haochen.mcmcp.api.JobApi;
+import dev.haochen.mcmcp.api.PreviewApi;
 import dev.haochen.mcmcp.api.ScriptApi;
 import dev.haochen.mcmcp.api.SystemApi;
+import dev.haochen.mcmcp.api.ViewApi;
 import dev.haochen.mcmcp.api.WorldApi;
 import dev.haochen.mcmcp.net.McWebSocketServer;
 import dev.haochen.mcmcp.net.RpcDispatcher;
+import dev.haochen.mcmcp.view.ViewHook;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -23,7 +26,9 @@ public class McMcpMod implements ModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	private static Services services;
+	private static MinecraftServer server;
 	private static McWebSocketServer wsServer;
+	private static volatile ViewHook viewHook;
 
 	@Override
 	public void onInitialize() {
@@ -41,6 +46,19 @@ public class McMcpMod implements ModInitializer {
 		return services;
 	}
 
+	public static MinecraftServer server() {
+		return server;
+	}
+
+	/** Set by the client entrypoint; null on a dedicated server. */
+	public static void setViewHook(ViewHook hook) {
+		viewHook = hook;
+	}
+
+	public static ViewHook viewHook() {
+		return viewHook;
+	}
+
 	public static String version() {
 		return FabricLoader.getInstance().getModContainer(MOD_ID)
 				.map(c -> c.getMetadata().getVersion().getFriendlyString())
@@ -48,6 +66,7 @@ public class McMcpMod implements ModInitializer {
 	}
 
 	private static void onServerStarted(MinecraftServer server) {
+		McMcpMod.server = server;
 		// Re-read on every server start so edits apply without restarting the game.
 		McMcpConfig config = McMcpConfig.loadOrCreate(FabricLoader.getInstance().getConfigDir().resolve("mcmcp.json"));
 		services = Services.create(config, FabricLoader.getInstance().getGameDir(), (method, params) -> {
@@ -63,6 +82,8 @@ public class McMcpMod implements ModInitializer {
 		JobApi.register(dispatcher);
 		ScriptApi.register(dispatcher);
 		BlueprintApi.register(dispatcher);
+		PreviewApi.register(dispatcher);
+		ViewApi.register(dispatcher);
 
 		if (System.getProperty("fabric-api.gametest") != null) {
 			// GameTests call the API directly; don't fight a running dev server for the port.
@@ -85,5 +106,6 @@ public class McMcpMod implements ModInitializer {
 			services.shutdown();
 			services = null;
 		}
+		server = null;
 	}
 }

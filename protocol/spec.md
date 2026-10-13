@@ -95,6 +95,7 @@
 - `changed`：实际写入的记录条数（与原状态相同的方块会跳过）。仅写任务有此字段。
 - `changeSetId`：仅在有修改时出现；撤销/重做任务还会带 `changeSetDescription`。
 - `error`：仅 `failed` 时出现。
+- `warning`：游戏暂停时，提交的任务对象和未结束任务的 `job.status` 会带上提示文字。
 - 模组保留最近 100 个已结束的任务。
 
 ## 方法
@@ -140,7 +141,7 @@
 }
 ```
 
-`gameTime` / `dayTime` 取自主世界，单位为 tick。`difficulty` 为 `peaceful` / `easy` / `normal` / `hard`。`mspt` 为最近 100 tick 的平均 tick 耗时（毫秒），≥ 50 表示服务器卡顿。
+`gameTime` / `dayTime` 取自主世界，单位为 tick。`difficulty` 为 `peaceful` / `easy` / `normal` / `hard`。`mspt` 为最近 100 tick 的平均 tick 耗时（毫秒），≥ 50 表示服务器卡顿。`paused` 为 `true` 表示单人游戏已暂停（暂停菜单打开或窗口失焦），此时任务不推进。
 
 ### `world.getPlayerState`
 
@@ -264,3 +265,43 @@
 - 无 `name`：result 为分层格式（`origin` 为区域最小角）。
 - 有 `name`（`[a-z0-9_-]{1,64}`）：保存到 `<游戏目录>/mcmcp/blueprints/<name>.json`，result 为 `{"name", "path", "origin", "size", "paletteSize"}`。
 - 方块实体 NBT 不导出。
+
+### `build.preview`
+
+只向该维度内所有玩家发送方块更新包（`ClientboundSectionBlocksUpdatePacket`，每个区块 section 一个），世界本身不变。客户端重新加载区块后看到的是原始世界。
+
+- params：与 `build.runScript`（有 `source` 时）或 `build.placeBlueprint`（否则）相同，不含 `dryRun`。
+- 预览前执行与真实写入相同的检查（`1001` / `1002` / `1003` / `1004`）。
+- 最多同时保留 5 个预览，超出时最旧的自动丢弃（向客户端恢复原方块）。
+- 之后加入的玩家看不到预览。
+- result：`{"previewId": n, "players": n, ...统计信息}`（统计同 `dryRun`）。
+
+### `build.confirmPreview`
+
+- params：`{"previewId": n}`
+- 把预览的方块作为一个写任务真正放置（一个 ChangeSet）。
+- result：任务对象。错误：`-32602`（预览不存在）。
+
+### `build.discardPreview`
+
+- params：`{"previewId": n}`
+- 向客户端重新发送这些位置的真实方块。
+- result：`{"discarded": true}`。错误：`-32602`。
+
+### `view.screenshot`
+
+仅当游戏客户端与服务器在同一进程（单人游戏 / 开放局域网的主机）时可用，否则返回 `-32603`。在渲染线程把世界（不含 HUD、手、方块选框）渲染到主帧缓冲后截取。
+
+- params：`{"pos"?: [x,y,z], "lookAt"?: [x,y,z], "yaw"?: deg, "pitch"?: deg, "width"?: 854, "height"?: 480, "fov"?: 70, "daylight"?: true}`
+  - `pos` 为相机（眼睛）位置，可为小数；省略时取第一个玩家的眼睛位置，且 `yaw`/`pitch` 默认取该玩家的朝向。
+  - `yaw`：0 朝南（+z），90 朝西，180 朝北，270 朝东；`pitch` 正值向下。`lookAt` 优先于 `yaw`/`pitch`。
+  - 分辨率最大 1920 × 1080，`fov` 30–110。
+  - `daylight`：渲染时把客户端的时间临时设为正午（只影响这次渲染，服务器时间不变）。
+- 只绘制客户端已加载的区块（玩家渲染距离内）。预览的假方块可见。
+- result：`{"width", "height", "shots": [{"label": "screenshot", "pos", "yaw", "pitch", "png": base64}]}`
+
+### `view.orbitShots`
+
+- params：`{"region": {...}, "count"?: 4, "pitch"?: 30, "distance"?, "width"?, "height"?, "fov"?, "daylight"?}`；`count` 1–8。
+- 相机围绕区域中心等角度分布、俯角 `pitch`，默认距离使整个包围盒落在视野内。`count = 4` 时依次为 `from north` / `from east` / `from south` / `from west`。
+- result：同 `view.screenshot`，`shots` 有 `count` 项。

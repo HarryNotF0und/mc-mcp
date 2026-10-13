@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.net.RpcException;
 import dev.haochen.mcmcp.world.Region;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
 
 /** Typed accessors for JSON-RPC params; every malformed value becomes a {@code -32602} error. */
 public final class Params {
@@ -49,6 +50,34 @@ public final class Params {
 			throw invalid(name + " must be an integer");
 		}
 		return (int) d;
+	}
+
+	public static double number(JsonObject params, String name, double fallback) {
+		if (!has(params, name)) {
+			return fallback;
+		}
+		JsonElement e = params.get(name);
+		if (!e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber() || !Double.isFinite(e.getAsDouble())) {
+			throw invalid(name + " must be a number");
+		}
+		return e.getAsDouble();
+	}
+
+	/** Parses {@code [x, y, z]} with fractional values allowed. */
+	public static Vec3 vec3(JsonObject params, String name) {
+		JsonElement e = require(params, name);
+		if (!e.isJsonArray() || e.getAsJsonArray().size() != 3) {
+			throw invalid(name + " must be [x, y, z]");
+		}
+		double[] v = new double[3];
+		for (int i = 0; i < 3; i++) {
+			JsonElement c = e.getAsJsonArray().get(i);
+			if (!c.isJsonPrimitive() || !c.getAsJsonPrimitive().isNumber() || Math.abs(c.getAsDouble()) > 30_000_000) {
+				throw invalid(name + " must contain numbers within the world border");
+			}
+			v[i] = c.getAsDouble();
+		}
+		return new Vec3(v[0], v[1], v[2]);
 	}
 
 	public static boolean bool(JsonObject params, String name, boolean fallback) {

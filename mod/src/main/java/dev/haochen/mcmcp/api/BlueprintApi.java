@@ -29,6 +29,21 @@ public final class BlueprintApi {
 
 	public static JsonObject placeBlueprint(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
+		Plan plan = plan(server, params);
+		if (Params.bool(params, "dryRun", false)) {
+			JsonObject stats = plan.stats();
+			stats.addProperty("dryRun", true);
+			return stats;
+		}
+		return plan.submit(s);
+	}
+
+	/**
+	 * Resolves and transforms the blueprint described by {@code params}
+	 * ({@code blueprint | name, origin?, rotation?, mirror?, skipAir?, dimension?, loadChunks?}). Server thread.
+	 */
+	public static Plan plan(MinecraftServer server, JsonObject params) {
+		Services s = McMcpMod.services();
 		ServerLevel level = WorldApi.level(server, params);
 		JsonObject json;
 		String label;
@@ -55,15 +70,9 @@ public final class BlueprintApi {
 		String mirrorAxis = Params.string(params, "mirror", "none");
 		Mirror mirror = Blueprint.mirror(mirrorAxis);
 		BlockList list = bp.place(at, rotation, mirror, Params.bool(params, "skipAir", false));
-
-		if (Params.bool(params, "dryRun", false)) {
-			JsonObject stats = list.stats(20);
-			stats.addProperty("dryRun", true);
-			return stats;
-		}
 		String description = "place " + label + " at " + at.toShortString()
 				+ (degrees != 0 ? " rotated " + degrees : "") + (mirror != Mirror.NONE ? " mirrored " + mirrorAxis : "");
-		return BuildApi.submitList(s, level, list, "placeBlueprint", description, Params.bool(params, "loadChunks", false));
+		return new Plan(level, list, "placeBlueprint", description, Params.bool(params, "loadChunks", false), list.stats(20));
 	}
 
 	public static JsonObject saveRegion(MinecraftServer server, JsonObject params) {
