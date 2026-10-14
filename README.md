@@ -11,5 +11,5 @@ Minecraft 1.21.1 · Fabric · Rust MCP bridge.
 
 **How to install and use it, and everything it can do: [docs/USAGE.md](docs/USAGE.md).**
 
-Project plan: [PLAN.md](PLAN.md) · Protocol: [protocol/spec.md](protocol/spec.md) ·
+Protocol: [protocol/spec.md](protocol/spec.md) · Agent operating guide: [docs/AGENTS.md](docs/AGENTS.md) ·
 Design decisions: [docs/decisions.md](docs/decisions.md)

@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The palette + layers format shared by perception output and blueprint input (PLAN.md §5):
+ * The palette + layers format shared by perception output and blueprint input:
  * {@code layers[i]} is {@code y = origin.y + i}; row {@code j} is {@code z = origin.z + j};
  * character {@code k} is {@code x = origin.x + k}.
  */

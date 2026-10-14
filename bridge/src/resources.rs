@@ -1,4 +1,4 @@
-//! MCP resources and prompts (PLAN.md §7).
+//! MCP resources and prompts.
 
 use rmcp::ErrorData;
 use rmcp::model::{

@@ -28,3 +28,11 @@ replay_*.log
 
 # rust
 bridge/target/
+
+# agent workflow notes (kept locally, not published)
+/AGENTS.md
+/CLAUDE.md
+/HANDOFF.md
+/PLAN.md
+/PLAN-v2.md
+docs/review-*.md

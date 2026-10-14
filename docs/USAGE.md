@@ -410,8 +410,8 @@ cd mod && ./gradlew runClient      # start the game with the mod (and WorldEdit)
 cd mod && ./gradlew runGametest    # 46 in-game tests (building, undo, scripts, blueprints,
                                    # previews, WorldEdit, the survival agent, site analysis
                                    # and building plans)
-cd bridge && cargo test            # 22 bridge tests (against a fake mod)
+cd bridge && cargo test            # 25 bridge tests (against a fake mod)
 ```
 
-Design notes are in [`docs/decisions.md`](decisions.md), the manual test checklist is in
-[`docs/manual-test.md`](manual-test.md), and the project plan is in [`PLAN.md`](../PLAN.md).
+Design notes are in [`docs/decisions.md`](decisions.md),
+and the manual test checklist is in [`docs/manual-test.md`](manual-test.md).

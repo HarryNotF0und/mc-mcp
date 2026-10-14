@@ -4,7 +4,7 @@
 
 ## 启动与信息来源
 
-- 本文件是本工作目录唯一需要读取的操作说明。不要启动时遍历目录、搜索或读取其他 Markdown，也不要为了使用 MCP 到源码仓库读取 AGENTS.md、HANDOFF.md、CLAUDE.md、PLAN、README 或 docs。只有用户明确要求开发源码或阅读某份文档时，才进入对应流程。
+- 本文件是本工作目录唯一需要读取的操作说明。不要启动时遍历目录、搜索或读取其他 Markdown，也不要为了使用 MCP 到源码仓库读取 README 或 docs。只有用户明确要求开发源码或阅读某份文档时，才进入对应流程。
 - 使用客户端已发现的 Minecraft MCP 工具；服务器通常叫 `minecraft`，实际命名空间可能不同。根据工具描述和实时参数 schema 调用，参数一般使用 camelCase。发现工具不需要读取本地文件。
 - 本文列出的工具并非每个部署版本都提供。先核对本次实际暴露的工具和参数，不调用缺失工具，也不为了补齐工具擅自升级服务器。尤其 `inspect_building`、`revise_building`、`get_building`、`find_flat_area`、`block_info`、`refresh_view`，以及 `buildingFile`、`includeFiles`、`keepExisting`、`split`、`orbit_shots.building` 等参数属于按实际能力使用的功能（2026-10-14 之后的 bridge 才有），缺失时执行下面的替代流程。
 - 不要例行加载 MCP 文档资源或 `build_assistant` 提示词。本文件已有常用流程。需要完整建筑范例时，可按需读取 JSON 资源 `mc://examples/two-story-house`，无须读取 Markdown。
