@@ -53,6 +53,8 @@ public final class WorldApi {
 		dispatcher.onMainThread("world.getBlock", WorldApi::getBlock);
 		dispatcher.onMainThread("world.getAreaSummary", WorldApi::getAreaSummary);
 		dispatcher.onMainThread("world.getLayerSlices", WorldApi::getLayerSlices);
+		dispatcher.onMainThread("world.blockInfo", (server, params) ->
+				dev.haochen.mcmcp.world.BlockInfo.describe(dev.haochen.mcmcp.world.Blocks.parse(Params.string(params, "block"))));
 	}
 
 	public static ServerLevel level(MinecraftServer server, JsonObject params) {
@@ -145,7 +147,7 @@ public final class WorldApi {
 	private static JsonObject getBlock(MinecraftServer server, JsonObject params) {
 		ServerLevel level = level(server, params);
 		BlockPos pos = Params.pos(params, "pos");
-		Guard.checkChunks(level, new Region(pos, pos), Params.bool(params, "loadChunks", false));
+		Guard.checkChunks(level, new Region(pos, pos), Params.loadChunks(params));
 		BlockState state = level.getBlockState(pos);
 		JsonObject o = new JsonObject();
 		o.add("pos", Json.blockPos(pos));
@@ -167,7 +169,7 @@ public final class WorldApi {
 					"layer slices are limited to 32 x 32 x 32; split the region or use getAreaSummary", data);
 		}
 		checkReadable(level, region);
-		Guard.checkChunks(level, region, Params.bool(params, "loadChunks", false));
+		Guard.checkChunks(level, region, Params.loadChunks(params));
 		return LayerFormat.encode(level, region);
 	}
 
@@ -177,7 +179,7 @@ public final class WorldApi {
 		int topN = Math.max(1, Params.integer(params, "top", 10));
 		McMcpMod.services().guard().checkVolume(region.volume());
 		checkReadable(level, region);
-		Guard.checkChunks(level, region, Params.bool(params, "loadChunks", false));
+		Guard.checkChunks(level, region, Params.loadChunks(params));
 
 		Map<Block, Integer> counts = new HashMap<>();
 		int air = 0;

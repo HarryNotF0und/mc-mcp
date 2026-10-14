@@ -211,7 +211,8 @@ public final class BuildingPlan {
 			int h = Params.integer(o, "height", type.equals("arch") ? 3 : 2);
 			int sill = Params.integer(o, "sill", type.equals("window") ? 1 : 0);
 			if (type.equals("door") && (w < 1 || w > 2 || h != 2)) {
-				throw Params.invalid(where + ": doors are 1 or 2 wide and 2 high");
+				throw Params.invalid(where + ": doors are 1 or 2 wide and 2 high (Minecraft doors); for a wider or taller entrance "
+						+ "such as a gate use type \"arch\" (an open archway, any width/height) or add a portcullis/gate with patches");
 			}
 			if (w < 1 || h < 1 || sill < 0 || sill + h > floor.height() - 1) {
 				throw Params.invalid(where + ": sill + height must fit below the ceiling (" + (floor.height() - 1) + " blocks)");

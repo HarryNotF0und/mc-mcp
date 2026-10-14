@@ -4,8 +4,8 @@ use rmcp::{ErrorData, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{McServer, Region, params, to_tool_result};
-use crate::mc_client::{McError, RpcError};
+use super::{McServer, Region, load_building, load_includes, params, read_file, to_tool_result};
+use crate::mc_client::McError;
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -14,14 +14,27 @@ pub struct PreviewArgs {
     /// blueprint/name/schematic (or script source, for preview).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub building: Option<Value>,
+    /// Instead of `building`: a .json file with the plan on the bridge's machine.
+    #[serde(skip_serializing)]
+    pub building_file: Option<String>,
+    /// Script helper files evaluated before the script (as in run_script).
+    #[serde(skip_serializing)]
+    pub include_files: Option<Vec<String>>,
+    /// Filled from includeFiles.
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub libraries: Option<Value>,
+    /// Script: never replace existing blocks (as in run_script).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_existing: Option<bool>,
     /// Place a building plan even if validation reports errors.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_validation: Option<bool>,
     /// Script source (as in run_script). Give a script (source/sourceFile) or a blueprint (blueprint/name).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    /// Script file on the bridge's machine, e.g. "examples/scripts/tower.js".
-    #[serde(skip_serializing)]
+    /// Script file on the bridge's machine, e.g. "examples/scripts/tower.js". Alias: `file`.
+    #[serde(skip_serializing, alias = "file")]
     pub source_file: Option<String>,
     /// Blueprint JSON (as in place_blueprint).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,8 +112,12 @@ pub struct ScreenshotArgs {
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct OrbitShotsArgs {
-    /// Bounding box of the build to photograph; both corners inclusive.
-    pub region: Region,
+    /// Bounding box of the build to photograph; both corners inclusive. Give this or `building`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<Region>,
+    /// Instead of `region`: name of a registered building (previewed or placed from a plan); its bounds are used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building: Option<String>,
     /// Number of views evenly spaced around it, default 4 (from north, east, south, west).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
@@ -124,6 +141,16 @@ pub struct OrbitShotsArgs {
     pub daylight: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshViewArgs {
+    /// Box to re-send to the players (at most 262144 blocks).
+    pub region: Region,
+    /// Dimension id; default "minecraft:overworld".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimension: Option<String>,
+}
+
 #[tool_router(router = view_router, vis = "pub(super)")]
 impl McServer {
     #[tool(description = "Show a script or blueprint as fake blocks to the players without changing the world \
@@ -134,10 +161,17 @@ then confirm_preview to build it for real or discard_preview to remove it. Playe
 real world again.")]
     async fn preview(&self, Parameters(mut args): Parameters<PreviewArgs>) -> Result<CallToolResult, ErrorData> {
         if let Some(path) = args.source_file.take() {
-            match tokio::fs::read_to_string(&path).await {
+            match read_file(&path, "sourceFile").await {
                 Ok(text) => args.source = Some(text),
-                Err(e) => return Ok(invalid(format!("cannot read sourceFile {path}: {e}"))),
+                Err(e) => return Ok(e),
             }
+        }
+        if let Err(e) = load_building(&mut args.building, args.building_file.take()).await {
+            return Ok(e);
+        }
+        match load_includes(args.include_files.take()).await {
+            Ok(libs) => args.libraries = libs,
+            Err(e) => return Ok(e),
         }
         Ok(self.forward("build.preview", params(&args)).await)
     }
@@ -149,6 +183,14 @@ pass ignoreValidation: true. Failed validation keeps the preview active. Safety 
         Ok(self.forward_job("build.confirmPreview", params(&args)).await)
     }
 
+    #[tool(description = "Re-send the blocks of a box to the players' game clients (real blocks, or an active \
+preview's): clears leftovers that only exist on the client, such as a stale preview after confirm/discard. \
+Changes nothing in the world. Check with get_block / get_layer_slices first that the world itself is right. \
+Example: {\"region\":{\"min\":[100,60,200],\"max\":[130,90,230]}}")]
+    async fn refresh_view(&self, Parameters(args): Parameters<RefreshViewArgs>) -> Result<CallToolResult, ErrorData> {
+        Ok(self.forward("view.refresh", params(&args)).await)
+    }
+
     #[tool(description = "Remove a preview: players see the real blocks again.")]
     async fn discard_preview(&self, Parameters(args): Parameters<PreviewIdArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(self.forward("build.discardPreview", params(&args)).await)
@@ -156,22 +198,21 @@ pass ignoreValidation: true. Failed validation keeps the preview active. Safety 
 
     #[tool(description = "Take a screenshot in the game client (single-player only) from any camera position, \
 without the HUD. Default: what the player sees. Use lookAt to aim at a point. Previews (fake blocks) are visible. \
-Only chunks the client has loaded (within render distance of the player) are drawn. \
+Only chunks the client has loaded (within render distance of the player) are drawn; a far target returns a \
+warning to move the player closer. Terrain fog is switched off for the picture. \
 Example: {\"pos\":[90,80,180],\"lookAt\":[100,66,200]}")]
     async fn screenshot(&self, Parameters(args): Parameters<ScreenshotArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(images(self.mc.call("view.screenshot", params(&args)).await))
     }
 
     #[tool(description = "Photograph a build from several sides (default 4: from north, east, south, west, looking \
-down 30 degrees), framed to fit the region. Use it to check a build and spot mistakes. Single-player only. \
+down 30 degrees), framed to fit the region, or a registered building's bounds ({\"building\":\"castle\"}). \
+Use it to check a build and spot mistakes. Single-player only; terrain fog is off, but only chunks near the player \
+exist on the client, so a far target returns a warning to move the player closer. \
 Example: {\"region\":{\"min\":[100,64,200],\"max\":[114,94,214]}}")]
     async fn orbit_shots(&self, Parameters(args): Parameters<OrbitShotsArgs>) -> Result<CallToolResult, ErrorData> {
         Ok(images(self.mc.call("view.orbitShots", params(&args)).await))
     }
-}
-
-fn invalid(message: String) -> CallToolResult {
-    to_tool_result(Err(McError::Rpc(RpcError { code: -32602, message, data: None })))
 }
 
 /// `{"width", "height", "shots": [{"label", "pos", "yaw", "pitch", "png"}]}` -> one caption text and one PNG image per shot.
@@ -181,6 +222,9 @@ fn images(result: Result<Value, McError>) -> CallToolResult {
         Err(e) => return to_tool_result(Err(e)),
     };
     let mut content = Vec::new();
+    if let Some(warning) = value["warning"].as_str() {
+        content.push(ContentBlock::text(json!({"warning": warning}).to_string()));
+    }
     for shot in value["shots"].as_array().into_iter().flatten() {
         let caption = json!({"label": shot["label"], "pos": shot["pos"], "yaw": shot["yaw"], "pitch": shot["pitch"]});
         content.push(ContentBlock::text(caption.to_string()));

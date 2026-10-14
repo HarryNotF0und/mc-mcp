@@ -68,8 +68,54 @@ public final class Guard {
 		JsonObject data = new JsonObject();
 		data.add("requested", region.toJson());
 		data.add("allowed", allowed);
+		String hint = "";
+		Region nearest = nearestAllowed(dimension, region);
+		if (nearest != null) {
+			data.add("nearestAllowed", nearest.toJson());
+			hint = "; the nearest allowed spot for a box of this size is " + nearest.min().toShortString() + " .. "
+					+ nearest.max().toShortString() + " (allowed: " + allowed + ")";
+		} else if (!allowed.isEmpty()) {
+			hint = "; it does not fit into any allowed region " + allowed;
+		} else {
+			hint = "; no allowed region in this dimension (config allowedRegions)";
+		}
 		throw new RpcException(RpcException.OUTSIDE_ALLOWED_REGION,
-				"region is outside the allowed regions of " + dimension, data);
+				"region " + region.min().toShortString() + " .. " + region.max().toShortString() + " is outside the allowed regions of "
+						+ dimension + hint, data);
+	}
+
+	/** The allowed regions of a dimension. */
+	public java.util.List<Region> allowedBoxes(String dimension) {
+		java.util.List<Region> out = new java.util.ArrayList<>();
+		for (McMcpConfig.Region r : config.allowedRegions) {
+			if (r.dimension().equals(dimension)) {
+				out.add(Region.of(new BlockPos(r.min()[0], r.min()[1], r.min()[2]), new BlockPos(r.max()[0], r.max()[1], r.max()[2])));
+			}
+		}
+		return out;
+	}
+
+	/** The box of the same size, moved as little as possible to lie inside an allowed region (null if none fits). */
+	public Region nearestAllowed(String dimension, Region region) {
+		Region best = null;
+		long bestDist = Long.MAX_VALUE;
+		int sx = region.max().getX() - region.min().getX(), sy = region.max().getY() - region.min().getY(),
+				sz = region.max().getZ() - region.min().getZ();
+		for (McMcpConfig.Region r : config.allowedRegions) {
+			if (!r.dimension().equals(dimension) || r.max()[0] - r.min()[0] < sx || r.max()[1] - r.min()[1] < sy || r.max()[2] - r.min()[2] < sz) {
+				continue;
+			}
+			int x = Math.max(r.min()[0], Math.min(region.min().getX(), r.max()[0] - sx));
+			int y = Math.max(r.min()[1], Math.min(region.min().getY(), r.max()[1] - sy));
+			int z = Math.max(r.min()[2], Math.min(region.min().getZ(), r.max()[2] - sz));
+			long dx = x - region.min().getX(), dy = y - region.min().getY(), dz = z - region.min().getZ();
+			long dist = dx * dx + dy * dy + dz * dz;
+			if (dist < bestDist) {
+				bestDist = dist;
+				best = Region.of(new BlockPos(x, y, z), new BlockPos(x + sx, y + sy, z + sz));
+			}
+		}
+		return best;
 	}
 
 	public void checkVolume(long volume) {
@@ -78,8 +124,25 @@ public final class Guard {
 			data.addProperty("volume", volume);
 			data.addProperty("max", config.maxVolumePerOp);
 			throw new RpcException(RpcException.VOLUME_TOO_LARGE,
-					"operation covers " + volume + " blocks, the limit is " + config.maxVolumePerOp, data);
+					"operation covers " + volume + " blocks, the limit is " + config.maxVolumePerOp
+							+ " (fill_region / clear_region accept split: true for up to " + config.maxSplitVolume
+							+ " blocks as several undoable jobs; otherwise split the area)", data);
 		}
+	}
+
+	/** Volume check for an operation that may be split into several jobs. */
+	public void checkSplitVolume(long volume) {
+		if (volume > config.maxSplitVolume) {
+			JsonObject data = new JsonObject();
+			data.addProperty("volume", volume);
+			data.addProperty("max", config.maxSplitVolume);
+			throw new RpcException(RpcException.VOLUME_TOO_LARGE,
+					"operation covers " + volume + " blocks, more than maxSplitVolume " + config.maxSplitVolume + " even when split", data);
+		}
+	}
+
+	public long maxVolume() {
+		return config.maxVolumePerOp;
 	}
 
 	/** Parses a block string and rejects blacklisted blocks (also error {@code 1003}). */

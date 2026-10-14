@@ -8,6 +8,7 @@ import dev.haochen.mcmcp.Services;
 import dev.haochen.mcmcp.arch.BuildingPlan;
 import dev.haochen.mcmcp.arch.BuildingRegistry;
 import dev.haochen.mcmcp.arch.DesignMetrics;
+import dev.haochen.mcmcp.arch.FlatFinder;
 import dev.haochen.mcmcp.arch.PlanCompiler;
 import dev.haochen.mcmcp.arch.PlanCompiler.WorldCell;
 import dev.haochen.mcmcp.arch.PlanOps;
@@ -57,6 +58,7 @@ public final class ArchApi {
 
 	public static void register(RpcDispatcher d) {
 		d.onMainThread("site.analyze", ArchApi::analyze);
+		d.onMainThread("site.findFlat", ArchApi::findFlat);
 		d.onMainThread("arch.validate", (server, params) -> {
 			Compiled c = compile(server, params);
 			JsonObject o = c.stats.deepCopy();
@@ -102,8 +104,42 @@ public final class ArchApi {
 				Params.integer(p, "margin", 2), prefer, Params.integer(p, "top", 3));
 		SiteAnalyzer.validate(request);
 		Guard.checkChunks(level, Region.of(center.offset(-radius, 0, -radius), center.offset(radius, 0, radius)),
-				Params.bool(p, "loadChunks", false));
+				Params.loadChunks(p));
 		return SiteAnalyzer.analyze(level, s.guard(), request);
+	}
+
+	/** Level areas of a given size in a large search area (sampled), inside the allowed regions. */
+	private static JsonObject findFlat(MinecraftServer server, JsonObject p) {
+		Services s = McMcpMod.services();
+		ServerLevel level = WorldApi.level(server, p);
+		BlockPos center = Params.has(p, "center") ? Params.pos(p, "center") : playerPos(server);
+		var size = Params.array(p, "size");
+		if (size.size() != 2) {
+			throw Params.invalid("size must be [width, depth]");
+		}
+		FlatFinder.Request r = new FlatFinder.Request(center, Params.integer(p, "radius", 128),
+				Params.integer(size.get(0), "size[0]"), Params.integer(size.get(1), "size[1]"),
+				Params.integer(p, "maxHeightDiff", 3), Params.bool(p, "allowWater", false), Params.bool(p, "rotate", true),
+				Params.integer(p, "top", 5), Params.bool(p, "loadChunks", false));
+		FlatFinder.validate(r);
+		List<Region> allowed = s.guard().allowedBoxes(level.dimension().location().toString());
+		if (allowed.isEmpty()) {
+			throw Params.invalid("no allowed region in " + level.dimension().location() + " (config allowedRegions)");
+		}
+		JsonObject out = FlatFinder.find(level, allowed, r);
+		JsonArray a = new JsonArray();
+		allowed.forEach(box -> a.add(box.toJson()));
+		out.add("allowedRegions", a);
+		return out;
+	}
+
+	private static BlockPos playerPos(MinecraftServer server) {
+		ServerPlayer player = server.getPlayerList().getPlayers().stream()
+				.filter(pl -> !(pl instanceof dev.haochen.mcmcp.agent.AgentPlayer)).findFirst().orElse(null);
+		if (player == null) {
+			throw Params.invalid("center is required when no player is online");
+		}
+		return player.blockPosition();
 	}
 
 	// ---------------------------------------------------------------- compile / preview / place
@@ -144,7 +180,7 @@ public final class ArchApi {
 		BuildingPlan plan = BuildingPlan.parse(planJson, s.guard());
 		int reach = Math.max(plan.width, plan.depth) + plan.terrainMargin + 8;
 		Guard.checkChunks(level, Region.of(plan.origin.offset(-reach, 0, -reach), plan.origin.offset(reach, 0, reach)),
-				Params.bool(params, "loadChunks", false));
+				Params.loadChunks(params));
 		PlanCompiler compiler = PlanCompiler.compile(plan, level, originals);
 		JsonObject validation = PlanValidator.validate(compiler, s.guard(), own);
 		BlockList blocks = compiler.toBlockList();
@@ -166,7 +202,7 @@ public final class ArchApi {
 		if (forPlacement) {
 			requireValid(c, params);
 		}
-		return c.toPlan(Params.bool(params, "loadChunks", false));
+		return c.toPlan(Params.loadChunks(params));
 	}
 
 	private static void requireValid(Compiled c, JsonObject params) {
@@ -181,7 +217,7 @@ public final class ArchApi {
 		Services s = McMcpMod.services();
 		Compiled c = compileRegistered(server, params);
 		BuildingRegistry.Entry old = s.buildings().find(BuildingRegistry.nameOf(c.planJson));
-		Plan plan = previewPlan(c, old, Params.bool(params, "loadChunks", false));
+		Plan plan = previewPlan(c, old, Params.loadChunks(params));
 		plan.validate(s);
 		if (old != null && old.previewId >= 0 && s.previews().active(old.previewId)) {
 			s.previews().discard(old.previewId);
@@ -198,7 +234,7 @@ public final class ArchApi {
 		Services s = McMcpMod.services();
 		Compiled c = compileRegistered(server, params);
 		requireValid(c, params);
-		return submitBuilding(s, c, Params.bool(params, "loadChunks", false));
+		return submitBuilding(s, c, Params.loadChunks(params));
 	}
 
 	private static Compiled compileRegistered(MinecraftServer server, JsonObject params) {
@@ -408,6 +444,20 @@ public final class ArchApi {
 				out.add("verification", verify(c.level, e.incomplete ? e.compiled : e.applied != null ? e.applied.cells() : e.compiled));
 			}
 			List<ViewPlanner.View> planned = ViewPlanner.plan(c.compiler.grid(), c.worldCells(), views, views.contains("interior") ? Math.max(fov, 85) : fov);
+			ViewHook viewHook = McMcpMod.viewHook();
+			if (images && viewHook != null && !c.worldCells().isEmpty()) {
+				Region box = null;
+				for (long key : c.worldCells().keySet()) {
+					BlockPos pos = BlockPos.of(key);
+					box = box == null ? new Region(pos, pos) : box.include(pos);
+				}
+				net.minecraft.world.phys.Vec3 center = new net.minecraft.world.phys.Vec3((box.min().getX() + box.max().getX() + 1) / 2.0,
+						(box.min().getY() + box.max().getY() + 1) / 2.0, (box.min().getZ() + box.max().getZ() + 1) / 2.0);
+				String warning = ViewApi.farWarning(server, viewHook, center, Math.max(box.sizeX(), box.sizeZ()) / 2.0 + 12);
+				if (warning != null) {
+					out.addProperty("warning", warning);
+				}
+			}
 			return new Object[]{out, planned};
 		}).thenCompose(arr -> {
 			JsonObject out = (JsonObject) arr[0];

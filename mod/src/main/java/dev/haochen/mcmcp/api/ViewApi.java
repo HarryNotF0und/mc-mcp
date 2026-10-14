@@ -29,12 +29,22 @@ public final class ViewApi {
 	public static void register(RpcDispatcher dispatcher) {
 		dispatcher.async("view.screenshot", ViewApi::screenshot);
 		dispatcher.async("view.orbitShots", ViewApi::orbitShots);
+		dispatcher.onMainThread("view.refresh", (server, params) -> {
+			var level = WorldApi.level(server, params);
+			Region region = Params.region(params, "region");
+			McMcpMod.services().guard().checkVolume(region.volume());
+			JsonObject o = new JsonObject();
+			o.addProperty("players", McMcpMod.services().previews().refresh(level, region));
+			o.addProperty("blocks", region.volume());
+			return o;
+		});
 	}
 
 	private static CompletableFuture<JsonElement> screenshot(MinecraftServer server, JsonObject params) {
 		ViewHook hook = hook();
 		Size size = size(params);
 		boolean hasPos = Params.has(params, "pos");
+		String[] warning = new String[1];
 		// Defaults come from the first player's eyes, read on the server thread.
 		return server.submit(() -> {
 			Vec3 pos;
@@ -55,14 +65,70 @@ public final class ViewApi {
 				yaw = (float) Params.number(params, "yaw", player != null && !hasPos ? player.getYRot() : 0);
 				pitch = (float) Params.number(params, "pitch", player != null && !hasPos ? player.getXRot() : 0);
 			}
+			warning[0] = farWarning(server, hook, Params.has(params, "lookAt") ? Params.vec3(params, "lookAt") : pos, 0);
 			return List.of(new Shot(pos.x, pos.y, pos.z, yaw, pitch, "screenshot"));
-		}).thenCompose(shots -> capture(hook, shots, size));
+		}).thenCompose(shots -> capture(hook, shots, size)).thenApply(r -> withWarning(r, warning[0]));
+	}
+
+	/**
+	 * The client only has (and draws) chunks within its render distance of the player: farther away
+	 * pictures show sky and fog, not the build. Null when the target is close enough. Server thread.
+	 */
+	public static String farWarning(MinecraftServer server, ViewHook hook, Vec3 target, double radius) {
+		int drawn = hook.renderDistanceBlocks();
+		ServerPlayer player = server.getPlayerList().getPlayers().stream()
+				.filter(p -> !(p instanceof dev.haochen.mcmcp.agent.AgentPlayer)).findFirst().orElse(null);
+		if (drawn <= 0 || player == null) {
+			return null;
+		}
+		double dx = target.x - player.getX(), dz = target.z - player.getZ();
+		double far = Math.sqrt(dx * dx + dz * dz) + radius;
+		if (far <= drawn - 8) {
+			return null;
+		}
+		return "the target is up to " + Math.round(far) + " blocks from the player, but the client only draws about " + drawn
+				+ " blocks around the player: parts outside will be missing (sky/fog). Ask the player to move closer "
+				+ "(near " + Math.round(target.x) + ", " + Math.round(target.z) + ") or raise the render distance, then take the pictures again.";
+	}
+
+	static JsonElement withWarning(JsonElement result, String warning) {
+		if (warning != null && result.isJsonObject()) {
+			result.getAsJsonObject().addProperty("warning", warning);
+		}
+		return result;
 	}
 
 	private static CompletableFuture<JsonElement> orbitShots(MinecraftServer server, JsonObject params) {
 		ViewHook hook = hook();
 		Size size = size(params);
-		Region region = Params.region(params, "region");
+		return server.submit(() -> {
+			Region region;
+			if (Params.has(params, "region")) {
+				region = Params.region(params, "region");
+			} else if (Params.has(params, "building")) {
+				region = buildingBounds(Params.string(params, "building"));
+			} else {
+				throw Params.invalid("pass region {min, max} (the box to photograph) or building (a registered building's name)");
+			}
+			return region;
+		}).thenCompose(region -> orbit(server, hook, size, region, params));
+	}
+
+	/** The bounding box of a registered building's compiled blocks. Server thread. */
+	static Region buildingBounds(String name) {
+		var e = McMcpMod.services().buildings().get(name);
+		if (e.compiled == null || e.compiled.isEmpty()) {
+			throw Params.invalid("building " + name + " has no compiled blocks yet; call inspect_building once, or pass region");
+		}
+		Region r = null;
+		for (long key : e.compiled.keySet()) {
+			net.minecraft.core.BlockPos p = net.minecraft.core.BlockPos.of(key);
+			r = r == null ? new Region(p, p) : r.include(p);
+		}
+		return r;
+	}
+
+	private static CompletableFuture<JsonElement> orbit(MinecraftServer server, ViewHook hook, Size size, Region region, JsonObject params) {
 		int count = Params.integer(params, "count", 4);
 		if (count < 1 || count > 8) {
 			throw Params.invalid("count must be 1 to 8");
@@ -84,7 +150,8 @@ public final class ViewApi {
 			String label = count == 4 ? "from " + FROM[i] : "yaw " + Math.round(yaw);
 			shots.add(new Shot(cam.x, cam.y, cam.z, (float) yaw, (float) pitch, label));
 		}
-		return capture(hook, shots, size);
+		String warning = farWarning(server, hook, center, radius);
+		return capture(hook, shots, size).thenApply(r -> withWarning(r, warning));
 	}
 
 	private static CompletableFuture<JsonElement> capture(ViewHook hook, List<Shot> shots, Size size) {

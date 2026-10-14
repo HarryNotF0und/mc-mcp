@@ -4,7 +4,7 @@ use rmcp::{ErrorData, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{McServer, Region, params, to_tool_result};
+use super::{McServer, Region, load_building, load_includes, params, read_file, to_tool_result};
 use crate::mc_client::{McError, RpcError};
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -14,9 +14,21 @@ pub struct RunScriptArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     /// Instead of `source`: path of a .js file on the machine running the bridge,
-    /// e.g. "examples/scripts/tower.js" (relative to the bridge's working directory).
-    #[serde(skip_serializing)]
+    /// e.g. "examples/scripts/tower.js" (relative to the bridge's working directory). Alias: `file`.
+    #[serde(skip_serializing, alias = "file")]
     pub source_file: Option<String>,
+    /// .js files evaluated before the script in the same scope (shared helper functions), in order.
+    /// Errors in them name the file and line.
+    #[serde(skip_serializing)]
+    pub include_files: Option<Vec<String>>,
+    /// Filled from includeFiles.
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub libraries: Option<Value>,
+    /// true: never replace existing blocks; b.set/fill only write where the world has air (or grass,
+    /// flowers, snow...). Skipped positions are counted in skippedExisting. b.keepExisting(bool) switches it in the script.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_existing: Option<bool>,
     /// World position [x, y, z] that script coordinates are relative to.
     pub origin: [i32; 3],
     /// true: run the script and report block count, bounding box and block counts without placing anything.
@@ -37,6 +49,9 @@ pub struct PlaceBlueprintArgs {
     /// blueprint/name/schematic (or script source, for preview).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub building: Option<Value>,
+    /// Instead of `building`: a .json file with the plan on the bridge's machine.
+    #[serde(skip_serializing)]
+    pub building_file: Option<String>,
     /// Place a building plan even if validation reports errors.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_validation: Option<bool>,
@@ -106,16 +121,14 @@ Limits: 5 s run time, 262144 blocks, no Java access. Script errors return code 1
 Example: {\"origin\":[100,64,200],\"source\":\"b.cylinder(0,0,0,7,30,'minecraft:stone_bricks',true)\"}")]
     async fn run_script(&self, Parameters(mut args): Parameters<RunScriptArgs>) -> Result<CallToolResult, ErrorData> {
         if let Some(path) = args.source_file.take() {
-            match tokio::fs::read_to_string(&path).await {
+            match read_file(&path, "sourceFile").await {
                 Ok(text) => args.source = Some(text),
-                Err(e) => {
-                    return Ok(to_tool_result(Err(McError::Rpc(RpcError {
-                        code: -32602,
-                        message: format!("cannot read sourceFile {path}: {e}"),
-                        data: None,
-                    }))));
-                }
+                Err(e) => return Ok(e),
             }
+        }
+        match load_includes(args.include_files.take()).await {
+            Ok(libs) => args.libraries = libs,
+            Err(e) => return Ok(e),
         }
         if args.source.is_none() {
             return Ok(to_tool_result(Err(McError::Rpc(RpcError {
@@ -133,7 +146,10 @@ optionally rotated 0/90/180/270 degrees clockwise and/or mirrored. Block states 
 Also places WorldEdit schematics (schematic: file name) when WorldEdit is installed, and building plans \
 (building: {...}; refused with error 1007 if validation fails, see validate_building). \
 One undoable change. Example: {\"name\":\"house\",\"origin\":[120,64,200],\"rotation\":90}")]
-    async fn place_blueprint(&self, Parameters(args): Parameters<PlaceBlueprintArgs>) -> Result<CallToolResult, ErrorData> {
+    async fn place_blueprint(&self, Parameters(mut args): Parameters<PlaceBlueprintArgs>) -> Result<CallToolResult, ErrorData> {
+        if let Err(e) = load_building(&mut args.building, args.building_file.take()).await {
+            return Ok(e);
+        }
         Ok(self.forward_job("build.placeBlueprint", params(&args)).await)
     }
 

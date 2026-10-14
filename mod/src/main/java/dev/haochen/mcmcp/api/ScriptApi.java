@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.McMcpMod;
 import dev.haochen.mcmcp.Services;
+import dev.haochen.mcmcp.script.ScriptSandbox;
 import dev.haochen.mcmcp.net.RpcDispatcher;
 import dev.haochen.mcmcp.world.Guard;
 import net.minecraft.core.BlockPos;
@@ -42,14 +43,28 @@ public final class ScriptApi {
 		Services s = McMcpMod.services();
 		String source = Params.string(params, "source");
 		BlockPos origin = Params.pos(params, "origin");
-		boolean loadChunks = Params.bool(params, "loadChunks", false);
+		boolean loadChunks = Params.loadChunks(params);
 		// Level lookup reads a map that is fixed after startup, so it is safe off the server thread.
 		ServerLevel level = Guard.level(server, Params.string(params, "dimension", WorldApi.DEFAULT_DIMENSION));
 
+		java.util.List<ScriptSandbox.Library> libraries = new java.util.ArrayList<>();
+		if (Params.has(params, "libraries")) {
+			for (var e : Params.array(params, "libraries")) {
+				if (!e.isJsonObject()) {
+					throw Params.invalid("libraries must be [{\"name\", \"source\"}]");
+				}
+				libraries.add(new ScriptSandbox.Library(Params.string(e.getAsJsonObject(), "name"), Params.string(e.getAsJsonObject(), "source")));
+			}
+		}
+		ScriptSandbox.Options options = new ScriptSandbox.Options(libraries, Params.bool(params, "keepExisting", false));
+
 		return s.scripts()
-				.run(server, level, source, origin, s.guard(), s.config().scriptTimeoutMs, s.config().maxVolumePerOp, loadChunks)
+				.run(server, level, source, origin, s.guard(), s.config().scriptTimeoutMs, s.config().maxVolumePerOp, loadChunks, options)
 				.thenApply(result -> {
 					JsonObject stats = result.blocks().stats(20);
+					if (result.skippedExisting() > 0) {
+						stats.addProperty("skippedExisting", result.skippedExisting());
+					}
 					JsonArray logs = new JsonArray();
 					result.logs().forEach(logs::add);
 					stats.add("logs", logs);

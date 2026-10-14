@@ -31,6 +31,10 @@ pub struct FillRegionArgs {
     /// "outline": only the shell; the interior is left untouched.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// Allow boxes above the per-operation limit (262144) by running them as several jobs in a row
+    /// (one undo step each, up to config maxSplitVolume). The result is the last job plus all jobIds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split: Option<bool>,
     /// Dimension id; default "minecraft:overworld".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dimension: Option<String>,
@@ -44,6 +48,10 @@ pub struct FillRegionArgs {
 pub struct ClearRegionArgs {
     /// Box to set to air; both corners inclusive.
     pub region: Region,
+    /// Allow boxes above the per-operation limit (262144) by running them as several jobs in a row
+    /// (one undo step each, up to config maxSplitVolume). The result is the last job plus all jobIds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split: Option<bool>,
     /// Dimension id; default "minecraft:overworld".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dimension: Option<String>,
@@ -58,8 +66,9 @@ macro_rules! write_notes {
         " Each call is one undoable change (see undo). Placement does not trigger block updates: \
 no falling sand, no redstone; fences/walls/panes still connect. Doors and beds need both halves placed explicitly. \
 Returns when the job finishes: {jobId, state, changed, changeSetId, ...}; very large jobs may return state \"running\" \
-— then poll job_status. Errors: 1001 outside allowed region, 1002 too many blocks (limit 262144), \
-1003 unknown or blacklisted block, 1004 chunk not loaded."
+— then poll job_status. Errors: 1001 outside allowed region (the message names the nearest allowed spot), \
+1002 too many blocks (limit 262144; fill_region and clear_region take split: true for bigger boxes), \
+1003 unknown or blacklisted block. Unloaded chunks are loaded by default (loadChunks: false refuses with 1004)."
     };
 }
 

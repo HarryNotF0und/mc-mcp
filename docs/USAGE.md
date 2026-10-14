@@ -190,7 +190,7 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 
 ---
 
-## Tool reference (39 tools)
+## Tool reference (43 tools)
 
 **Basics**: `ping`, `get_world_info` (versions, players, time, tick time, whether paused, WorldEdit).
 
@@ -203,14 +203,17 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 | `get_area_summary` | Block counts, surface heightmap, fluids, entities for up to 262,144 blocks |
 | `get_layer_slices` | Every block of a region (≤ 32 per side) as palette + layers |
 | `screenshot` | A picture from any position/direction (single-player) |
-| `orbit_shots` | Pictures of a region from several sides (single-player) |
+| `orbit_shots` | Pictures of a region (or a registered `building`) from several sides (single-player) |
+| `block_info` | A block's properties and what its orientation values mean (stairs, doors, trapdoors, banners, ...) |
+| `refresh_view` | Re-send a box's real blocks to the game client (clears stale preview leftovers) |
 
 **Planning**
 
 | Tool | Purpose |
 |---|---|
-| `analyze_build_site` | Terrain summary, character map, ranked building sites with `origin`/`facing` |
-| `validate_building` | Compile and check a building plan; per-component errors and reachability |
+| `analyze_build_site` | Terrain summary, character map, ranked building sites with `origin`/`facing` (up to 48 × 48) |
+| `find_flat_area` | Level areas of any size up to 256 × 256 within radius 256, inside the allowed regions |
+| `validate_building` | Compile and check a building plan (`building` or `buildingFile`); per-component errors and reachability |
 | `inspect_building` | Pictures from planned viewpoints + validation, design metrics, requirements, world verification |
 | `revise_building` | Change components of a registered building; only differing blocks change (confirm for built ones) |
 | `get_building` | Plan and status of a registered building, or the list of them |
@@ -220,9 +223,9 @@ The bridge also offers a **`build_assistant`** prompt (a recommended workflow) a
 | Tool | Purpose |
 |---|---|
 | `place_blocks` | Up to 4096 individual blocks `[x, y, z, "block"]` |
-| `fill_region` | Fill a box: `solid`, `hollow`, `outline`; block or WorldEdit pattern |
-| `clear_region` | Set a box to air |
-| `run_script` | Run a build script (`source` or `sourceFile`), `dryRun` for statistics |
+| `fill_region` | Fill a box: `solid`, `hollow`, `outline`; block or WorldEdit pattern; `split: true` for big boxes |
+| `clear_region` | Set a box to air; `split: true` for big boxes |
+| `run_script` | Run a build script (`source` or `sourceFile`/`file`, `includeFiles`, `keepExisting`), `dryRun` for statistics |
 | `place_blueprint` | Place a blueprint (`blueprint` JSON, saved `name`, WorldEdit `schematic`) with rotation/mirror, or a building plan (`building`) |
 | `save_blueprint` | Export a region as JSON or (with WorldEdit) `.schem` |
 | `list_blueprints` | Saved blueprints and schematic files |
@@ -328,6 +331,8 @@ Full reference with examples: [`docs/script-api.md`](script-api.md). Ready-made 
     { "dimension": "minecraft:overworld", "min": [-256, -64, -256], "max": [256, 320, 256] }
   ],
   "maxVolumePerOp": 262144,
+  "maxSplitVolume": 1048576,
+  "loadChunksByDefault": true,
   "blocksPerTick": 2000,
   "blockBlacklist": ["minecraft:command_block", "minecraft:tnt"],
   "scriptTimeoutMs": 5000,
@@ -341,6 +346,9 @@ Full reference with examples: [`docs/script-api.md`](script-api.md). Ready-made 
 | `token` | Shared secret for the bridge. Delete it to generate a new one. |
 | `allowedRegions` | Boxes (per dimension, corners inclusive) where god-mode tools may build. An empty list allows nothing. The agent is not limited by this, since it can only do what a survival player can. |
 | `maxVolumePerOp` | Largest fill, script result, blueprint or area summary (blocks). |
+| `maxSplitVolume` | Largest `fill_region` / `clear_region` with `split: true`; it runs as several jobs of at most `maxVolumePerOp`, one undo step each. |
+| `loadChunksByDefault` | `true`: tools load (and generate) unloaded chunks they touch unless a call passes `loadChunks: false`. Only inside `allowedRegions`. `find_flat_area` always needs an explicit `loadChunks: true`. |
+| `maxRevisionRounds` | Revisions of one building before the AI must ask the user to continue (default 3). |
 | `blocksPerTick` | Placement speed. Lower it if the server lags. |
 | `blockBlacklist` | Blocks that may not be placed, also inside patterns and scripts. |
 | `scriptTimeoutMs` | Time limit for build scripts. |
@@ -369,12 +377,14 @@ SSH tunnel (`ssh -L 25580:127.0.0.1:25580 server`) and keep `MCMCP_URL` at its d
 | "cannot connect to Minecraft" | The game is not running, no world is open, or the port differs. Check the log for `MC-MCP listening`. |
 | "Minecraft rejected the token" | `MCMCP_TOKEN` must equal `token` in `config/mcmcp.json` of the game you are playing. |
 | A job stays `running` with a "game is paused" warning | Close the pause menu, or press **F3 + P** so the game keeps running unfocused. |
-| Error `1001` (outside allowed region) | Build closer to the allowed area, or extend `allowedRegions`. |
-| Error `1002` (too large) | Split the job, or raise `maxVolumePerOp`. |
+| Error `1001` (outside allowed region) | The message and `data.nearestAllowed` give the nearest spot where the same box fits; build there, or extend `allowedRegions`. |
+| Error `1002` (too large) | `fill_region` / `clear_region`: pass `split: true`. Otherwise split the job, or raise `maxVolumePerOp`. |
 | Error `1003` (unknown/blacklisted block) | Check the block id and properties; patterns need WorldEdit. |
-| Error `1004` (chunk not loaded) | Retry with `loadChunks: true`, or move closer. |
-| Error `1006` (script error) | The message has the line number; for `const` errors use `let`. |
-| Screenshots show nothing far away | Only chunks within your render distance are drawn. |
+| Error `1004` (chunk not loaded) | Only when `loadChunks: false` was passed or `loadChunksByDefault` is off: retry with `loadChunks: true`, or move closer. |
+| Error `1006` (script error) | The message has the line number (and the file, for `includeFiles`). `class` is not supported. |
+| Screenshots show nothing far away / a `warning` about distance | Only chunks within your render distance are drawn; go closer to the build (the warning says where) and take them again. Terrain fog is switched off for pictures. |
+| A see-through "ghost" of an old preview | Check the real blocks with `get_block`; then `refresh_view` on that box (or F3 + A). |
+| Head bumps on stairs built from a plan | Fixed: plans now get 3 blocks of headroom per step and `STAIRS_HEADROOM` reports anything in the way. Rebuild older houses' stairwells (revise or re-place). |
 | "screenshots need the game client" | You are on a dedicated server; use `get_layer_slices` instead. |
 | The agent "could not reach" something | It cannot swim or build bridges; move it closer with `agent_goto` (`dig: true`), or pick another target. |
 | "port already in use" in the log | Another world or server is using 25580; change `port` (and `MCMCP_URL`). |
@@ -386,7 +396,7 @@ SSH tunnel (`ssh -L 25580:127.0.0.1:25580 server`) and keep `MCMCP_URL` at its d
 - Minecraft 1.21.1 (Fabric) only.
 - Undo history is kept in memory only; it is cleared when the world/server stops.
 - Blueprints and schematics carry blocks but not block entity contents (chest items, sign text).
-- Script engine: Rhino (ES5 plus part of ES6, see above). It has no memory limit.
+- Script engine: Rhino (ES5 plus most of ES6, no `class`; see the script API). It has no memory limit.
 - The agent does not swim, fight, eat, smelt, or build bridges/pillars to cross gaps.
 - Previews are sent to players online at the time; players who join later see the real world.
 

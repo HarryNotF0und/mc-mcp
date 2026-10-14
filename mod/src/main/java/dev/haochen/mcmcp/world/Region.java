@@ -52,6 +52,32 @@ public record Region(BlockPos min, BlockPos max) {
 				new BlockPos(Math.max(max.getX(), p.getX()), Math.max(max.getY(), p.getY()), Math.max(max.getZ(), p.getZ())));
 	}
 
+	/**
+	 * Splits this region into boxes of at most {@code maxVolume} blocks, bottom layers first: whole
+	 * horizontal layers when one fits, otherwise rows of a layer.
+	 */
+	public java.util.List<Region> split(long maxVolume) {
+		java.util.List<Region> out = new java.util.ArrayList<>();
+		long layer = (long) sizeX() * sizeZ();
+		if (layer <= maxVolume) {
+			int layers = (int) Math.max(1, maxVolume / layer);
+			for (int y = min.getY(); y <= max.getY(); y += layers) {
+				out.add(new Region(new BlockPos(min.getX(), y, min.getZ()), new BlockPos(max.getX(), Math.min(max.getY(), y + layers - 1), max.getZ())));
+			}
+			return out;
+		}
+		if (sizeX() > maxVolume) {
+			throw new IllegalArgumentException("a single row is larger than " + maxVolume);
+		}
+		int rows = (int) (maxVolume / sizeX());
+		for (int y = min.getY(); y <= max.getY(); y++) {
+			for (int z = min.getZ(); z <= max.getZ(); z += rows) {
+				out.add(new Region(new BlockPos(min.getX(), y, z), new BlockPos(max.getX(), y, Math.min(max.getZ(), z + rows - 1))));
+			}
+		}
+		return out;
+	}
+
 	public JsonObject toJson() {
 		JsonObject o = new JsonObject();
 		o.add("min", Json.blockPos(min));

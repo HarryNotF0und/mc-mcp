@@ -429,3 +429,47 @@
 - 更新预览也必须通过写入安全检查；失败时保留方案、预览和计数器。`userApproved` 只在修改成功时重置计数；对已建成建筑的未确认建议不修改计数。
 - result：`{"building", "diff": {"changed", "removed", "unchanged", "components": [...]}, "validation", "applied", "job"?, "revision", "roundsLeft"}`
 - 写任务进行中拒绝继续修改（`-32602`，带任务说明）；incomplete 建筑应先 undo 或通过完整方案再次放置修复。无方块变化时不创建写任务。Bridge 会等待嵌套 job，超时仍返回原报告和当前 job 状态；随后用 job.status 等待完成再核对。
+
+## 使用反馈修复（2026-10-14）
+
+### 通用
+
+- `loadChunks` 的默认值来自配置 `loadChunksByDefault`（默认 `true`）：未加载的区块（只会在允许区域内）会被加载/生成。显式 `false` 时仍返回 `1004`。例外：`site.findFlat` 默认 `false`。
+- `1001` 的 `data` 增加 `nearestAllowed: {min, max}`（同尺寸盒子移动最少即可放进某个允许区域的位置；放不进任何区域时没有），消息里也写出该位置。
+
+### `world.fillRegion` / `world.clearRegion`
+
+- 新增 `split?: false`。体积超过 `maxVolumePerOp` 且 `split: true` 时，按层（一层太大则按行）拆成若干任务依次提交（每个一个 ChangeSet / 撤销步），总体积上限 `maxSplitVolume`。返回最后一个任务对象，外加 `jobIds: [...]` 和 `note`。未拆分时 `1002` 消息提示 `split: true`。
+
+### `build.runScript`（以及脚本形式的 `build.preview`）
+
+- 新增 `libraries?: [{"name", "source"}]`：在脚本之前按顺序于同一作用域执行。其中的错误返回 `1006`，`message` 以文件名开头，`data.file` 为该名字。bridge 的 `includeFiles: [路径]` 读取文件并转为 `libraries`。
+- 新增 `keepExisting?: false`：只在世界中为空气或可替换方块（草、花、雪层……）的位置写入，其余跳过并计入结果的 `skippedExisting`。脚本中可用 `b.keepExisting(bool)` 切换。
+- 源码中的 `const` 按 `let` 执行（D31）；不再拒绝循环内的 const。
+
+### `site.findFlat`
+
+- params：`{"size": [w, d], "center"?: 玩家位置, "radius"?: 128 (8–256), "maxHeightDiff"?: 3, "allowWater"?: false, "rotate"?: true, "top"?: 5 (1–10), "dimension"?, "loadChunks"?: false}`，`size` 每边 3–256。
+- 在网格上采样地面高度（忽略树），只返回完全位于允许区域内、没有（>2%）建筑、默认不含水的候选，按平整度、土方量排序且互不重叠。
+- result：`{"surface": {"ground"|"trees"|"water"|"built"|"void"|"unloaded": 采样数}, "sampleStep", "sampledColumns", "chunks", "coverage", "note"?, "candidates": [{"min", "max", "sizeXZ", "rotated", "groundY", "groundMin", "groundMax", "cut", "fill", "trees", "water", "score"}], "hint"?, "allowedRegions"}`。`min`/`max` 的 y 为 `groundY`（地面顶层方块，可直接作为建筑方案 origin 的 y）。
+
+### `world.blockInfo`
+
+- params：`{"block": "minecraft:oak_trapdoor[...]"}`
+- result：`{"id", "state", "defaultState", "properties": {名: [取值]}, "notes": [朝向等含义说明], "solid", "fullBlock"}`
+
+### `view.refresh`
+
+- params：`{"region", "dimension"?}`（体积上限 `maxVolumePerOp`）。把区域内玩家应看到的方块（真实方块，或活动预览的假方块）重新发给客户端，不改世界。result：`{"players", "blocks"}`。
+
+### `view.screenshot` / `view.orbitShots` / `arch.inspect`
+
+- 截图期间客户端关闭地形雾（D32）。
+- 目标（`lookAt`/相机位置、区域或建筑范围）超出客户端渲染距离时，结果带 `warning`（说明距离和应靠近的位置）。
+- `view.orbitShots`：`region` 可省略，改传 `building`（已登记建筑名，使用其编译方块的包围盒）。
+
+### 建筑校验
+
+- 新错误 `STAIRS_HEADROOM`：楼梯每级上方需三格空（最上一级两格，含第一级前的地面格）。编译器自动在上层楼板开相应的洞。寻路上下一级时要求较低一列有第三格空。
+- 新警告 `TOWER_HIDDEN`：塔高出周围屋顶不足 4 格。
+- 门的错误消息说明更宽/更高的入口用 `arch`。

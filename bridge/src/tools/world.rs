@@ -15,6 +15,12 @@ pub struct PlayerStateArgs {
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct BlockInfoArgs {
+    /// Block id or state, e.g. "minecraft:oak_trapdoor" or "minecraft:oak_stairs[facing=north]".
+    pub block: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBlockArgs {
     /// Block position [x, y, z].
@@ -74,6 +80,11 @@ and lookingAt (the block the crosshair points at, up to 64 blocks away). Use it 
         Parameters(args): Parameters<PlayerStateArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         Ok(self.forward("world.getPlayerState", params(&args)).await)
+    }
+
+    #[tool(description = "Explain a block's states before placing it: every property with its possible values, the default state, and notes on what orientation properties mean (stairs facing = side of the tall back / climbing direction; door and trapdoor panels sit on the side opposite to facing; wall signs, banners, torches and ladders face away from their wall; banner/sign rotation 0 = south ...). Use it instead of guessing; check the result with a screenshot. Example: {\"block\":\"minecraft:oak_trapdoor\"}")]
+    async fn block_info(&self, Parameters(args): Parameters<BlockInfoArgs>) -> Result<CallToolResult, ErrorData> {
+        Ok(self.forward("world.blockInfo", params(&args)).await)
     }
 
     #[tool(description = "Read one block. Returns its state in game syntax, e.g. \

@@ -36,6 +36,8 @@ final class BuilderObject extends ScriptableObject {
 	private static final BlockPattern AIR = BlockPattern.of(net.minecraft.world.level.block.Blocks.AIR.defaultBlockState());
 	private final List<String> logs = new ArrayList<>();
 	private int droppedLogs;
+	private boolean keepExisting;
+	private int skippedExisting;
 
 	BuilderObject(Scriptable scope, BlockPos origin, Guard guard, WorldSnapshot world, int maxBlocks) {
 		this.origin = origin;
@@ -81,6 +83,10 @@ final class BuilderObject extends ScriptableObject {
 			sphere(i(args[0]), i(args[1]), i(args[2]), Context.toNumber(args[3]), block(args[4]), flag(args, 5));
 			return Undefined.instance;
 		});
+		fn(scope, "keepExisting", 1, args -> {
+			keepExisting = args.length == 0 || Context.toBoolean(args[0]);
+			return Undefined.instance;
+		});
 		fn(scope, "log", 1, args -> {
 			StringBuilder sb = new StringBuilder();
 			for (Object a : args) {
@@ -103,6 +109,14 @@ final class BuilderObject extends ScriptableObject {
 		return blocks;
 	}
 
+	void keepExisting(boolean on) {
+		keepExisting = on;
+	}
+
+	int skippedExisting() {
+		return skippedExisting;
+	}
+
 	List<String> logs() {
 		List<String> out = new ArrayList<>(logs);
 		if (droppedLogs > 0) {
@@ -120,6 +134,18 @@ final class BuilderObject extends ScriptableObject {
 			state = pattern.at(p.getX(), p.getY(), p.getZ());
 		} catch (RpcException e) {
 			throw Context.reportRuntimeError(e.getMessage());
+		}
+		if (keepExisting && blocks.get(p.asLong()) == null) {
+			BlockState there;
+			try {
+				there = world.get(p.getX(), p.getY(), p.getZ());
+			} catch (WorldSnapshot.ChunkNotLoaded e) {
+				throw Context.reportRuntimeError(e.getMessage());
+			}
+			if (!there.isAir() && !(there.getFluidState().isEmpty() && there.canBeReplaced())) {
+				skippedExisting++;
+				return;
+			}
 		}
 		blocks.put(p, state);
 		if (blocks.size() > maxBlocks) {

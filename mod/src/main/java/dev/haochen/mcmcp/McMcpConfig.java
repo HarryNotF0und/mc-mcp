@@ -22,12 +22,19 @@ public final class McMcpConfig {
 	public List<Region> allowedRegions = List.of(
 			new Region("minecraft:overworld", new int[]{-256, -64, -256}, new int[]{256, 320, 256}));
 	public int maxVolumePerOp = 262144;
+	/** fill/clear with {@code split: true} may cover up to this many blocks, as several jobs of at most maxVolumePerOp. */
+	public long maxSplitVolume = 4L * 262144;
 	public int blocksPerTick = 2000;
 	public List<String> blockBlacklist = List.of("minecraft:command_block", "minecraft:tnt");
 	public int scriptTimeoutMs = 5000;
 	public int historySize = 50;
 	/** Revisions of one building the AI may make before the user has to approve continuing. */
 	public int maxRevisionRounds = 3;
+	/**
+	 * Default for the {@code loadChunks} parameter: load (and generate if needed) unloaded chunks a
+	 * request touches. They are always inside the allowed regions, so this stays bounded.
+	 */
+	public boolean loadChunksByDefault = true;
 
 	public record Region(String dimension, int[] min, int[] max) {
 	}

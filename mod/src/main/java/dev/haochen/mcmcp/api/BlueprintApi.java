@@ -111,7 +111,7 @@ public final class BlueprintApi {
 		BlockList list = bp.place(at, rotation, mirror, Params.bool(params, "skipAir", false));
 		String description = "place " + label + " at " + at.toShortString()
 				+ (degrees != 0 ? " rotated " + degrees : "") + (mirror != Mirror.NONE ? " mirrored " + mirrorAxis : "");
-		return new Plan(level, list, "placeBlueprint", description, Params.bool(params, "loadChunks", false), list.stats(20));
+		return new Plan(level, list, "placeBlueprint", description, Params.loadChunks(params), list.stats(20));
 	}
 
 	public static JsonObject saveRegion(MinecraftServer server, JsonObject params) {
@@ -122,7 +122,7 @@ public final class BlueprintApi {
 		if (region.min().getY() < level.getMinBuildHeight() || region.max().getY() >= level.getMaxBuildHeight()) {
 			throw Params.invalid("y must be within build height");
 		}
-		Guard.checkChunks(level, region, Params.bool(params, "loadChunks", false));
+		Guard.checkChunks(level, region, Params.loadChunks(params));
 		String format = Params.string(params, "format", "json");
 		if (format.equals("schem")) {
 			if (!Params.has(params, "name")) {

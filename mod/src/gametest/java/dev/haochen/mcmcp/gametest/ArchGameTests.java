@@ -132,6 +132,9 @@ public class ArchGameTests implements FabricGameTest {
 					BlockState step = helper.getBlockState(FAR.offset(1, 1, 6));
 					helper.assertTrue(step.getBlock() instanceof StairBlock && step.getValue(StairBlock.FACING) == Direction.NORTH, "first step: " + step);
 					helper.assertBlockPresent(Blocks.SPRUCE_PLANKS, FAR.offset(3, 4, 4)); // upper floor
+					for (int z = 4; z <= 6; z++) {
+						helper.assertBlockPresent(Blocks.AIR, FAR.offset(1, 4, z)); // stairwell: three blocks of headroom per step
+					}
 					helper.assertTrue(helper.getBlockState(FAR.offset(5, 9, -1)).getBlock() instanceof StairBlock, "roof overhang");
 					helper.assertBlockPresent(Blocks.AIR, FAR.offset(4, 1, 4)); // interior cleared through the mound
 					helper.assertBlockPresent(Blocks.COBBLESTONE, FAR.offset(9, -2, 1)); // foundation fills the hole
@@ -154,6 +157,8 @@ public class ArchGameTests implements FabricGameTest {
 		expect(helper, at, "FLOATING", b -> patch(b, "chimney", 5, 20, 4, "minecraft:bricks"));
 		expect(helper, at, "OPENING_BOUNDS", b -> b.getAsJsonArray("openings").get(1).getAsJsonObject().addProperty("at", 0));
 		expect(helper, at, "STAIRS_BOUNDS", b -> b.getAsJsonArray("stairs").get(0).getAsJsonObject().addProperty("direction", "front"));
+		// A block on the upper floor right above the middle of the stairs: walkable on paper, head bump in game.
+		expect(helper, at, "STAIRS_HEADROOM", b -> patch(b, "upper-clutter", 1, 5, 5, "minecraft:oak_planks"));
 		expect(helper, at, "DOOR_ORIENTATION", b -> patch(b, "front-door", 5, 1, 8, "minecraft:spruce_door[facing=east,half=lower]"));
 
 		// Existing structure in the way.

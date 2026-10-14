@@ -32,6 +32,13 @@ import java.util.concurrent.CompletableFuture;
 final class ScreenshotRenderer implements ViewHook {
 	/** Frames rendered per shot so sections that just became visible get compiled and uploaded. */
 	private static final int WARMUP_FRAMES = 6;
+	/** While true, terrain fog is switched off (see FogRendererMixin): inspection pictures should show the far side clearly. */
+	static volatile boolean capturing;
+
+	@Override
+	public int renderDistanceBlocks() {
+		return Minecraft.getInstance().options.getEffectiveRenderDistance() * 16;
+	}
 
 	@Override
 	public CompletableFuture<List<byte[]>> capture(List<Shot> shots, int width, int height, int fov, boolean daylight) {
@@ -53,6 +60,7 @@ final class ScreenshotRenderer implements ViewHook {
 		long oldDayTime = levelData.getDayTime();
 		List<byte[]> images = new ArrayList<>(shots.size());
 		try {
+			capturing = true;
 			mc.gameRenderer.setRenderBlockOutline(false);
 			mc.gameRenderer.setRenderHand(false);
 			if (daylight) {
@@ -98,6 +106,7 @@ final class ScreenshotRenderer implements ViewHook {
 			}
 			return images;
 		} finally {
+			capturing = false;
 			mc.setCameraEntity(oldCamera);
 			mc.options.fov().set(oldFov);
 			window.setWidth(oldWidth);

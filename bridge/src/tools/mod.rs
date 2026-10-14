@@ -139,6 +139,50 @@ impl McServer {
     }
 }
 
+/// A -32602 tool error, like the mod's for bad parameters.
+fn invalid_params(message: String) -> CallToolResult {
+    to_tool_result(Err(McError::Rpc(crate::mc_client::RpcError { code: -32602, message, data: None })))
+}
+
+/// Reads a text file named by a tool argument (a path on the machine running the bridge).
+async fn read_file(path: &str, arg: &str) -> Result<String, CallToolResult> {
+    tokio::fs::read_to_string(path)
+        .await
+        .map_err(|e| invalid_params(format!("cannot read {arg} {path}: {e}")))
+}
+
+/// Fills `building` from `buildingFile` (a JSON file with the plan) when given.
+async fn load_building(building: &mut Option<Value>, file: Option<String>) -> Result<(), CallToolResult> {
+    if let Some(path) = file {
+        let text = read_file(&path, "buildingFile").await?;
+        let plan: Value = serde_json::from_str(&text)
+            .map_err(|e| invalid_params(format!("buildingFile {path} is not valid JSON: {e}")))?;
+        *building = Some(plan);
+    }
+    Ok(())
+}
+
+/// Script libraries from `includeFiles`: [{name, source}] evaluated before the script.
+async fn load_includes(files: Option<Vec<String>>) -> Result<Option<Value>, CallToolResult> {
+    let Some(files) = files else { return Ok(None) };
+    let mut libs = Vec::new();
+    for path in files {
+        let source = read_file(&path, "includeFiles entry").await?;
+        libs.push(json!({"name": path, "source": source}));
+    }
+    Ok(Some(Value::Array(libs)))
+}
+
+/// Drops the per-component list (long for big plans) unless `details` was asked for.
+fn brief(mut value: Value, details: bool) -> Value {
+    if let (false, Some(o)) = (details, value.as_object_mut())
+        && let Some(Value::Array(c)) = o.remove("components")
+    {
+        o.insert("componentCount".into(), json!(c.len()));
+    }
+    value
+}
+
 /// Serialises tool arguments into mod params, dropping absent optional fields.
 fn params<T: Serialize>(args: &T) -> Value {
     serde_json::to_value(args).unwrap_or_else(|_| json!({}))
@@ -322,11 +366,46 @@ mod tests {
     }
 
     #[test]
+    fn validation_is_brief_unless_details_are_asked_for() {
+        let v = json!({"blocks": 10, "components": [{"id": "roof"}, {"id": "walls"}], "validation": {"ok": true}});
+        assert_eq!(brief(v.clone(), false), json!({"blocks": 10, "componentCount": 2, "validation": {"ok": true}}));
+        assert_eq!(brief(v.clone(), true), v);
+    }
+
+    #[tokio::test]
+    async fn building_and_include_files_are_read() {
+        let dir = std::env::temp_dir().join(format!("mcmcp-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let plan = dir.join("plan.json");
+        std::fs::write(&plan, r#"{"name": "keep"}"#).unwrap();
+        let lib = dir.join("lib.js");
+        std::fs::write(&lib, "function f() {}").unwrap();
+
+        let mut building = None;
+        load_building(&mut building, Some(plan.to_string_lossy().into())).await.unwrap();
+        assert_eq!(building, Some(json!({"name": "keep"})));
+        let libs = load_includes(Some(vec![lib.to_string_lossy().into()])).await.unwrap().unwrap();
+        assert_eq!(libs[0]["source"], "function f() {}");
+
+        let missing = load_building(&mut building, Some("no/such/file.json".into())).await.unwrap_err();
+        let text = serde_json::to_value(&missing).unwrap()["content"][0]["text"].as_str().unwrap().to_string();
+        assert!(text.contains("cannot read buildingFile no/such/file.json"), "{text}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn script_file_accepts_the_file_alias() {
+        let a: scripts::RunScriptArgs = serde_json::from_value(json!({"file": "x.js", "origin": [0, 0, 0]})).unwrap();
+        assert_eq!(a.source_file.as_deref(), Some("x.js"));
+    }
+
+    #[test]
     fn absent_optional_args_are_not_sent() {
         let v = params(&build::FillRegionArgs {
             region: Region { min: [0, 1, 2], max: [3, 4, 5] },
             block: "minecraft:stone".into(),
             mode: None,
+            split: None,
             dimension: None,
             load_chunks: Some(true),
         });

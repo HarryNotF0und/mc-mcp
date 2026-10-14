@@ -137,6 +137,19 @@ public final class PreviewManager {
 		return previews.containsKey(id);
 	}
 
+	/**
+	 * Re-sends what players should see in {@code region} (the real blocks, or an active preview's) to
+	 * clear stale client blocks, e.g. leftovers of an old preview. Returns the number of players.
+	 */
+	public int refresh(ServerLevel level, dev.haochen.mcmcp.world.Region region) {
+		List<Placement> all = new ArrayList<>();
+		for (BlockPos pos : BlockPos.betweenClosed(region.min(), region.max())) {
+			all.add(new Placement(pos.immutable(), (BlockState) null));
+		}
+		sendVisible(level, all.iterator());
+		return level.players().size();
+	}
+
 	/** Resolve affected cells against the newest remaining preview before restoring the display. */
 	private void sendVisible(Plan plan) { sendVisible(plan.level(), plan.blocks().placements()); }
 	private void sendVisible(ServerLevel level, Iterator<Placement> positions) {

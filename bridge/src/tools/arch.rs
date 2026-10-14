@@ -6,7 +6,7 @@ use rmcp::{ErrorData, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{McServer, params, to_tool_result};
+use super::{McServer, brief, load_building, params, to_tool_result};
 use crate::mc_client::McError;
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -42,7 +42,16 @@ pub struct AnalyzeSiteArgs {
 #[serde(rename_all = "camelCase")]
 pub struct ValidateBuildingArgs {
     /// Building plan ("format": "mcmcp.building/1"); see resource mc://docs/building-plan.
-    pub building: Value,
+    /// Give this or buildingFile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building: Option<Value>,
+    /// Instead of `building`: path of a .json file with the plan, on the machine running the bridge
+    /// (absolute, or relative to the bridge's working directory). Edit the file and validate again.
+    #[serde(skip_serializing)]
+    pub building_file: Option<String>,
+    /// true: also return the per-component list (ids, roles, block counts, bounds). Default false.
+    #[serde(skip_serializing)]
+    pub details: Option<bool>,
     /// Dimension id; default "minecraft:overworld".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dimension: Option<String>,
@@ -90,6 +99,9 @@ pub struct ReviseBuildingArgs {
     /// Alternatively a whole replacement plan (same name).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub building: Option<Value>,
+    /// Or the replacement plan as a .json file on the bridge's machine.
+    #[serde(skip_serializing)]
+    pub building_file: Option<String>,
     /// Required to change a building that is already built (after asking the user).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confirm: Option<bool>,
@@ -99,6 +111,37 @@ pub struct ReviseBuildingArgs {
     /// Apply even with validation errors.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_validation: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FindFlatArgs {
+    /// Area wanted [width along x, depth along z], 3-256 each (also tried rotated unless rotate is false).
+    pub size: [u32; 2],
+    /// Centre of the search [x, y, z]. Default: the player's position.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub center: Option<[i32; 3]>,
+    /// Search radius 8-256, default 128.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<u32>,
+    /// Largest accepted ground height difference inside the area (ignoring the 2% extremes), default 3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_height_diff: Option<u32>,
+    /// Accept water inside the area (it would have to be filled). Default false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_water: Option<bool>,
+    /// Also try the area turned 90 degrees. Default true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rotate: Option<bool>,
+    /// Number of candidates, 1-10, default 5.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top: Option<u32>,
+    /// Dimension id; default "minecraft:overworld".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimension: Option<String>,
+    /// Load (and generate) unloaded chunks of the search area. Default false: only loaded chunks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub load_chunks: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -125,8 +168,26 @@ per-component bounds, and validation: errors/warnings with codes (REGION, COLLIS
 ROOF_GAP, ROOF_ORIENTATION, DOOR_ORIENTATION, MISSING_ENTRANCE, MISSING_STAIRS, STAIRS_BLOCKED, UNREACHABLE_ROOM, ...), \
 the components involved and world positions, plus which floors and rooms can be walked to. Fix the named components \
 (or add a patch) and validate again; then preview / place_blueprint with {\"building\": ...}.")]
-    async fn validate_building(&self, Parameters(args): Parameters<ValidateBuildingArgs>) -> Result<CallToolResult, ErrorData> {
-        Ok(self.forward("arch.validate", params(&args)).await)
+    async fn validate_building(&self, Parameters(mut args): Parameters<ValidateBuildingArgs>) -> Result<CallToolResult, ErrorData> {
+        if let Err(e) = load_building(&mut args.building, args.building_file.take()).await {
+            return Ok(e);
+        }
+        if args.building.is_none() {
+            return Ok(super::invalid_params("pass building (the plan) or buildingFile (a .json file)".into()));
+        }
+        let details = args.details.unwrap_or(false);
+        Ok(to_tool_result(self.mc.call("arch.validate", params(&args)).await.map(|v| brief(v, details))))
+    }
+
+    #[tool(description = "Find level areas of a given size in a large area (radius up to 256), for big projects \
+(castles, villages, farms) that do not fit analyze_build_site (max 48 x 48). Samples the ground (ignoring trees) on \
+a grid and returns the most level candidates inside the allowed build regions, each with min/max corners, groundY \
+(use it as the plan origin y), height range, cut/fill estimates, tree and water fractions; plus the surface mix \
+and allowedRegions. Only loaded chunks are searched unless loadChunks: true (slow for big radii). Results are \
+approximate: check the chosen area with analyze_build_site or get_area_summary. \
+Example: {\"size\":[100,200],\"radius\":200,\"maxHeightDiff\":4}")]
+    async fn find_flat_area(&self, Parameters(args): Parameters<FindFlatArgs>) -> Result<CallToolResult, ErrorData> {
+        Ok(self.forward("site.findFlat", params(&args)).await)
     }
 
     #[tool(description = "Look at a registered building (one previewed or placed with {\"building\": ...}). \
@@ -146,7 +207,10 @@ if job.state is queued/running, poll job_status before inspecting or revising ag
 undone or rebuilt first. At most 3 revisions (config \
 maxRevisionRounds) until the user approves more: then show the user the result, ask, and pass userApproved: true. \
 Example: {\"name\":\"house\",\"ops\":[{\"op\":\"update\",\"id\":\"roof\",\"set\":{\"overhang\":1}}]}")]
-    async fn revise_building(&self, Parameters(args): Parameters<ReviseBuildingArgs>) -> Result<CallToolResult, ErrorData> {
+    async fn revise_building(&self, Parameters(mut args): Parameters<ReviseBuildingArgs>) -> Result<CallToolResult, ErrorData> {
+        if let Err(e) = load_building(&mut args.building, args.building_file.take()).await {
+            return Ok(e);
+        }
         Ok(self.forward_job("arch.revise", params(&args)).await)
     }
 

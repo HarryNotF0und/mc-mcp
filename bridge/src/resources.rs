@@ -94,19 +94,27 @@ region corners are inclusive.\n\
 building plan (read mc://docs/building-plan, start from mc://examples/two-story-house), validate_building until it \
 has no errors, then preview it and call inspect_building: look at every picture and the metrics, compare them \
 with what the user asked for, and fix problems with revise_building (only changed blocks are updated). After 3 \
-rounds show the user and ask; never change a built building without asking (confirm: true). For other structures pick the ground level from the heightmap.\n\
+rounds show the user and ask; never change a built building without asking (confirm: true). Keep big plans in a \
+.json file and pass buildingFile. For large projects (castles, villages) find_flat_area finds level ground of any \
+size inside the allowed regions. For other structures pick the ground level from the heightmap.\n\
 3. Prefer one run_script call for anything with repetition or curves (read mc://docs/script-api first), \
 fill_region for boxes, place_blocks for details. Run scripts with dryRun: true first and check the block \
-count and bounding box, or show it with preview, look at it with orbit_shots, then confirm_preview.\n\
+count and bounding box, or show it with preview, look at it with orbit_shots, then confirm_preview. Shared helper \
+functions go in includeFiles; keepExisting: true never overwrites existing blocks. Before placing stairs, doors, \
+trapdoors, banners or signs, check what facing means with block_info. Hand-built stairs need three free blocks \
+above every step.\n\
 4. Build. Each call is one undoable change. For big builds the tool may return state \"running\"; poll job_status. \
 A \"warning\" that the game is paused means jobs wait until the player closes the pause menu. After a world revision, \
 wait until its nested job is done before inspecting or revising again. A building marked incomplete needs undo or \
 full replacement before further revisions. Undo and redo restore the matching building design too.\n\
-5. Verify with orbit_shots / screenshot (single-player) and get_layer_slices. If something is wrong, undo and rebuild \
+5. Verify with orbit_shots / screenshot (single-player) and get_layer_slices. Pictures only show what is near the \
+player: if a result has a warning about distance, ask the player to come closer before judging. If a preview \
+leftover shows after building, check the real blocks and use refresh_view. If something is wrong, undo and rebuild \
 rather than patching blindly.\n\
 \n\
-Errors: 1001 outside allowed region, 1002 too large, 1003 unknown/blacklisted block, 1004 chunk not loaded \
-(retry with loadChunks: true), 1006 script error (fix the reported line).";
+Errors: 1001 outside allowed region (the message names the nearest allowed spot), 1002 too large (fill_region / \
+clear_region: split: true), 1003 unknown/blacklisted block, 1004 chunk not loaded (only with loadChunks: false), \
+1006 script error (fix the reported file and line).";
     Ok(GetPromptResult::new(vec![PromptMessage::new_text(Role::User, text)])
         .with_description("Recommended workflow for building in Minecraft"))
 }

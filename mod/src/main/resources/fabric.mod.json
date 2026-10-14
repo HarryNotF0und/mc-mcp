@@ -12,6 +12,9 @@
 		"main": ["dev.haochen.mcmcp.McMcpMod"],
 		"client": ["dev.haochen.mcmcp.client.McMcpClient"]
 	},
+	"mixins": [
+		{"config": "mcmcp.client.mixins.json", "environment": "client"}
+	],
 	"depends": {
 		"fabricloader": ">=0.19.5",
 		"minecraft": "~1.21.1",

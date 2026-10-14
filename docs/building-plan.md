@@ -57,7 +57,9 @@ Exterior walls are the footprint's edge cells; the interior is `x = 1 .. width-2
   front and back walls and the local **z** for the left and right walls. Openings must avoid the
   corner posts: `1 <= at` and `at + width - 1 <= length - 2`.
 - `partition` instead of `wall`: `at` counts from the partition's start.
-- Doors are 1 or 2 wide (double doors) and 2 high, and face into the building. Windows default
+- Doors are 1 or 2 wide (double doors) and 2 high (Minecraft doors), and face into the building.
+  For a wider or taller entrance (a castle gate) use `"type": "arch"`: an open archway of any
+  width and height, which counts as an entrance; add gates or a portcullis with `patches`. Windows default
   to 2 × 2 with a sill of 1; `sill + height` must fit under the ceiling. Arches default to 3 × 3
   and get rounded top corners.
 
@@ -121,13 +123,19 @@ opens the upper floor above them for headroom. Leave the landing cell after the 
 | `FLOOR_INCOMPLETE` | An upper floor covering less than 75 % of the interior |
 | `MISSING_ENTRANCE` | No ground-floor exterior door/arch, or nowhere to stand in front of any |
 | `UNREACHABLE_FLOOR` / `MISSING_STAIRS` / `STAIRS_BLOCKED` | A floor that cannot be walked to |
+| `STAIRS_HEADROOM` | Something above a staircase: every step needs three free blocks above it (two above the top step), including the floor cell in front of the first step |
 | `UNREACHABLE_ROOM` | A room that cannot be walked to from the entrance |
 | `OPENING_BOUNDS`, `STAIRS_BOUNDS`, `PARTITION_BOUNDS`, `PATH_NO_DOOR` | Geometry that does not fit |
 
-Warnings: `FOUNDATION_DEEP`, `ENTRANCE_BLOCKED` (one of several entrances).
+Warnings: `FOUNDATION_DEEP`, `ENTRANCE_BLOCKED` (one of several entrances), `TOWER_HIDDEN` (a
+tower that rises less than 4 blocks above the roof around it; the message gives the height it needs).
 
-Reachability is checked by walking: 1-block steps (jumping needs headroom; stairs and slabs
-don't), doors and gates are passable, the start is the ground in front of each entrance.
+Reachability is checked by walking: 1-block steps up or down, each needing a third free block
+above the lower of the two columns (a player rises while still over the lower step, by stairs
+too), doors and gates are passable, the start is the ground in front of each entrance.
+The compiler opens the upper floor above a staircase wherever that headroom needs it (3 cells
+for a full-height staircase); anything placed into that hole (patches, furniture, decor) is
+reported as `STAIRS_HEADROOM`.
 Every error lists the components involved and world positions, so a fix can target one
 component (or a `patch`) instead of redesigning the building.
 
@@ -140,6 +148,13 @@ component (or a `patch`) instead of redesigning the building.
 11 × 9 two-story house with a hall and kitchen downstairs, a bedroom and a study upstairs
 (partition with a door), straight stairs, a gable roof, windows on every side, a path, lanterns
 and a fence.
+
+## Large plans: files
+
+`validate_building`, `preview`, `place_blueprint` and `revise_building` take `buildingFile`
+(a `.json` path on the bridge's machine) instead of `building`, so a large plan is not resent
+inline on every call: edit the file, call again. `validate_building` returns only a
+`componentCount` unless `details: true`.
 
 ## Requirements (checked by `inspect_building`)
 

@@ -302,13 +302,38 @@ public final class PlanCompiler {
 					for (int sy = s.from().base() + 1; sy < y; sy++) {
 						g.set(x, sy, z, style("floor"), s.id(), Role.STAIRS); // solid underneath
 					}
-					// Headroom: open the upper floor above the steps that pass under it.
-					if (k >= h - 3 && k <= h - 2) {
-						g.set(x, s.to().base(), z, AIR, s.id(), Role.CLEAR);
-					}
+				}
+			}
+			// Headroom: walking up, the player rises while still over the lower step, so every step
+			// below the top (and the floor cell in front of the first) needs three free blocks above
+			// it. Open the upper floor wherever it is one of them.
+			for (int[] c : headroom(s, h)) {
+				if (c[1] == s.to().base() && c[0] >= 1 && c[2] >= 1 && c[0] <= W - 2 && c[2] <= D - 2) {
+					g.set(c[0], c[1], c[2], AIR, s.id(), Role.CLEAR);
 				}
 			}
 		}
+	}
+
+	/**
+	 * Cells that must be free for walking up a staircase: the three above the floor cell in front of
+	 * the first step and above every step but the top one, which needs two (local x, y, z).
+	 */
+	static List<int[]> headroom(BuildingPlan.Stairs s, int h) {
+		Direction d = dir(s.direction());
+		Direction lateral = d.getClockWise();
+		List<int[]> out = new ArrayList<>();
+		for (int k = -1; k < h; k++) {
+			for (int w = 0; w < s.width(); w++) {
+				int x = s.x() + d.getStepX() * k + lateral.getStepX() * w;
+				int z = s.z() + d.getStepZ() * k + lateral.getStepZ() * w;
+				int top = s.from().base() + 1 + k; // the step (or, for k = -1, the floor)
+				for (int dy = 1; dy <= (k == h - 1 ? 2 : 3); dy++) {
+					out.add(new int[]{x, top + dy, z});
+				}
+			}
+		}
+		return out;
 	}
 
 	private void roof() {

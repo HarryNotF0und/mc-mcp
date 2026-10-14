@@ -7,17 +7,19 @@ nothing is placed and you get statistics instead.
 
 ## Language: what works in this engine
 
-Rhino supports most of ES5 and part of ES6. Stick to this subset:
+Rhino supports most of ES5 and much of ES6:
 
-- **Use `let` or `var` inside loops, never `const`.** In Rhino a `const` in a loop body keeps the
-  value from the first iteration; scripts that do this are rejected before they run.
-  `const` at the top level or inside a function body (outside loops) is fine.
-- `for (let v of array)` works; `for (const v of ...)` and destructuring in the loop header
-  (`for (let [x, z] of ...)`) do not. Write `for (let p of pts) { let x = p[0], z = p[1]; ... }`.
-- Works: arrow functions, template literals, default parameters, `let [a, b] = ...`,
-  `const {x, y} = ...`, `Map`, `Set`, `Array.prototype.includes`, `Math`, `JSON`.
-- Does not work: `class`, spread (`...args`), `async`/`await`.
-- Closures created in a loop share the loop variable (`let` is not per-iteration).
+- `let`, `const` (also inside loops), `for (const v of array)`, destructuring (also in loop
+  headers: `for (const [x, z] of pts)`), arrow functions, template literals, default and rest
+  parameters, spread (`[...a, 3]`), `Map`, `Set`, `Array.prototype.includes`, `Object.assign`,
+  `Math`, `JSON`.
+  - Rhino gives `const` function scope, which would keep a loop body's first value, so the mod
+    runs every `const` as `let` (D31). The only difference you can notice: assigning to a
+    constant is not an error.
+- Does not work: `class` (the error says so; use functions and plain objects), `async`/`await`,
+  generators.
+- Closures created in a loop share the loop variable (`let` is not per-iteration): copy the value
+  into a function parameter if a callback needs it.
 
 ## Coordinates
 
@@ -48,6 +50,17 @@ Circles and spheres contain the points whose distance from the centre is less th
 `radius + 0.5`, so a whole-number radius `r` gives a diameter of `2r + 1`
 (radius 7 -> diameter 15).
 
+## Helper files and existing blocks
+
+- `includeFiles: ["C:/work/lib/walls.js", ...]` (run_script and preview): these files are evaluated
+  first, in order, in the same scope, so their functions are available to the script. Errors in
+  them name the file: `C:/work/lib/walls.js line 4: ...` (`data.file`, `data.line`). Paths are on
+  the machine running the bridge.
+- `keepExisting: true`: `b.set` / `b.fill` / ... only write where the world has air or a
+  replaceable block (grass, flowers, snow layers); other positions are skipped and counted in
+  the result's `skippedExisting`. Positions the script itself set earlier can still be changed.
+  `b.keepExisting(true|false)` switches it in the middle of a script (e.g. only for decorations).
+
 ## Limits
 
 - Time limit `scriptTimeoutMs` (default 5000 ms), counted while the script runs. Exceeding it
@@ -55,7 +68,7 @@ Circles and spheres contain the points whose distance from the centre is less th
 - At most `maxVolumePerOp` (default 262144) distinct blocks per script.
 - No access to Java, files, network or the host: only standard JavaScript (`Math`, `Array`,
   `JSON`, ...) and `b`.
-- Reading with `b.get` in a chunk that is not loaded fails unless the call passes `loadChunks: true`.
+- Unloaded chunks are loaded for `b.get` and placing by default (`loadChunks: false` refuses instead).
 - The result goes through the same checks as other writes: allowed regions (1001), volume (1002),
   blacklisted blocks (1003).
 

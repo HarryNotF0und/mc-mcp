@@ -18,7 +18,8 @@
 - 修改世界一律通过 `jobs/` 任务队列和 `BlockSnapshot.SET_FLAGS`，并记录到 ChangeSet；不要直接 `setBlock`（见 decisions D6）。
 - 改协议时同时更新 `protocol/spec.md`、`mod/`、`bridge/`。
 - 需要取舍的设计先写进 `docs/decisions.md`。
-- 用户使用说明在 `docs/USAGE.md`；新增或修改工具时同步更新。
+- 用户使用说明在 `docs/USAGE.md`；新增或修改工具时同步更新，同时更新给使用工具的 agent 的说明 `docs/AGENTS.md`。
+- 每做完一部分工作，把细节写进 `HANDOFF.md`（改了什么、为什么、文件、实际测试结果、未验证的部分、已知问题），再 commit。Claude 和 Codex 轮流开发，`HANDOFF.md` 是共享状态。
 
 ## 常用命令
 

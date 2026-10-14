@@ -66,6 +66,8 @@ public final class PlanValidator {
 		v.roof();
 		v.orientation();
 		v.floorCoverage();
+		v.stairsHeadroom();
+		v.towersVisible();
 		v.reachability();
 		return v.report();
 	}
@@ -305,11 +307,51 @@ public final class PlanValidator {
 				&& !(below.getBlock() instanceof net.minecraft.world.level.block.WallBlock);
 	}
 
-	/** Stairs and bottom slabs are climbed by walking; anything else needs a jump. */
-	private static boolean halfStep(BlockState s) {
-		return s.getBlock() instanceof StairBlock
-				|| s.getBlock() instanceof net.minecraft.world.level.block.SlabBlock
-				&& s.getValue(net.minecraft.world.level.block.SlabBlock.TYPE) == net.minecraft.world.level.block.state.properties.SlabType.BOTTOM;
+	/** A tower that barely clears the roof around it reads as a chimney: warn with the numbers. */
+	private void towersVisible() {
+		int H = p.wallTop(), maxY = H + Math.max(p.width, p.depth) + 4;
+		for (BuildingPlan.Tower t : p.towers) {
+			int roofTop = Integer.MIN_VALUE;
+			for (int x = t.x() - t.radius() - 1; x <= t.x() + t.radius() + 1; x++) {
+				for (int z = t.z() - t.radius() - 1; z <= t.z() + t.radius() + 1; z++) {
+					for (int y = maxY; y > roofTop && y >= 0; y--) {
+						Cell c = g.get(x, y, z);
+						if (c != null && c.role() == Role.ROOF && !c.component().equals(t.id()) && !c.state().isAir()) {
+							roofTop = y;
+							break;
+						}
+					}
+				}
+			}
+			if (roofTop == Integer.MIN_VALUE) {
+				continue;
+			}
+			int above = t.height() - 1 - roofTop;
+			if (above < 4) {
+				add(false, "TOWER_HIDDEN", "tower " + t.id() + " rises only " + Math.max(0, above) + " block(s) above the roof around it "
+						+ "(roof top y=" + roofTop + ", tower walls up to y=" + (t.height() - 1) + "): it will look like a chimney. "
+						+ "Use height >= " + (roofTop + 7) + " or move it outside the footprint.", Set.of(t.id()),
+						List.of(new int[]{t.x(), roofTop, t.z()}));
+			}
+		}
+	}
+
+	/** Every staircase has three free blocks above each step (two above the top one). */
+	private void stairsHeadroom() {
+		for (BuildingPlan.Stairs s : p.stairs) {
+			List<int[]> blocked = new ArrayList<>();
+			for (int[] c : PlanCompiler.headroom(s, s.from().height())) {
+				if (!passable(g.finalState(c[0], c[1], c[2]))) {
+					blocked.add(c);
+				}
+			}
+			if (!blocked.isEmpty()) {
+				add(true, "STAIRS_HEADROOM", "stairs " + s.id() + " need three free blocks above each step (two above the top one); "
+						+ blocked.size() + " block(s) are in the way, e.g. " + g.finalState(blocked.get(0)[0], blocked.get(0)[1], blocked.get(0)[2]).getBlock()
+						.builtInRegistryHolder().key().location() + " at local " + blocked.get(0)[0] + "," + blocked.get(0)[1] + "," + blocked.get(0)[2]
+						+ ". Move what is above the stairs, or the stairs.", Set.of(s.id()), blocked.subList(0, Math.min(10, blocked.size())));
+			}
+		}
 	}
 
 	private void reachability() {
@@ -371,8 +413,11 @@ public final class PlanValidator {
 					if (x < minX || x > maxX || z < minZ || z > maxZ || y < minY || y > maxY) {
 						continue;
 					}
-					if (dy == 1 && !halfStep(g.finalState(x, y - 1, z)) && !passable(g.finalState(cur.getX(), cur.getY() + 2, cur.getZ()))) {
-						continue; // a full block needs a jump, and there is no room above to jump
+					// Going up (even by stairs) the player rises while still over the lower column; going down it
+					// is still at the upper height over the lower column: that column needs a third free block.
+					if (dy == 1 && !passable(g.finalState(cur.getX(), cur.getY() + 2, cur.getZ()))
+							|| dy == -1 && !passable(g.finalState(x, y + 2, z))) {
+						continue;
 					}
 					if (canStand(x, y, z)) {
 						long k = BlockPos.asLong(x, y, z);

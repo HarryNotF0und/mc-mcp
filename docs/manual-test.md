@@ -95,3 +95,13 @@
 - [ ] 自动化：未开始的假玩家任务取消后立即释放 busy，后续 tick 不执行；邻居形状未变/箱子合并时都保留任务切片之间加入的物品。
 - [ ] 实机：存档 A 建造、修改，正常退出后重新进入，get/inspect/revise 能恢复正确维度与基准；切到存档 B 不应出现 A 的世界绑定建筑。旧游戏目录的纯设计可列出，但显示 planned。
 - [ ] 实机：两个重叠预览分别修改/丢弃，检查实际客户端画面仍显示最上层；室内/外部截图构图检查。自动化的合成状态和回调测试不能替代这一步。
+
+## 使用反馈修复（2026-10-14）实机检查
+
+- [ ] `runClient` 正常启动（新增客户端 mixin `mcmcp.client.mixins.json` / `FogRendererMixin`）。
+- [ ] 在玩家附近 `orbit_shots` 一座建筑：远侧墙不再发白（无地形雾）；天空正常。
+- [ ] 对 300 格外的区域 `orbit_shots`：结果带 `warning`，提示靠近的位置。
+- [ ] `preview` → `confirm_preview` → 若有残影，`refresh_view` 该区域后消失。
+- [ ] 按两层房子示例建成后，玩家从一楼走楼梯到二楼不撞头（三格净空）。
+- [ ] `find_flat_area {"size":[100,200]}` 在已加载区域给出候选，`groundY` 与 `get_block` 一致。
+- [ ] `run_script` 用 `file` 参数和 `includeFiles`，库中错误显示文件名。

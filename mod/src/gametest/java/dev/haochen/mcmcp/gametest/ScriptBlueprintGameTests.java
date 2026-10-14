@@ -1,5 +1,6 @@
 package dev.haochen.mcmcp.gametest;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.haochen.mcmcp.McMcpMod;
@@ -81,15 +82,78 @@ public class ScriptBlueprintGameTests implements FabricGameTest {
 	}
 
 	@GameTest(template = EMPTY, timeoutTicks = 1000)
-	public void constInsideLoopIsRejectedBeforeRunning(GameTestHelper helper) {
+	public void modernSyntaxWorksIncludingConstInLoops(GameTestHelper helper) {
 		McMcpGameTests.allowEverywhere();
 		BlockPos origin = helper.absolutePos(BlockPos.ZERO);
-		var future = script(helper, origin, "const N = 3;\nfor (let i = 0; i < N; i++) {\n  const x = i;\n  b.set(x, 0, 0, 'minecraft:stone');\n}", true);
-		expectError(helper, future, e -> {
-			helper.assertTrue(e.code() == RpcException.SCRIPT_ERROR, "code 1006");
-			helper.assertTrue(e.data().getAsJsonObject().get("line").getAsInt() == 3, "line 3: " + e.getMessage());
-			helper.assertTrue(e.getMessage().contains("use let"), e.getMessage());
+		var future = script(helper, origin, String.join("\n",
+				"const N = 3;",
+				"for (let i = 0; i < N; i++) {",
+				"  const x = i; // const inside a loop body",
+				"  b.set(x, 0, 0, 'minecraft:stone');",
+				"}",
+				"for (const [dx, dz] of [[0, 1], [0, 2]]) b.set(dx, 0, dz, 'minecraft:glass');",
+				"const f = (v) => v * 2;",
+				"b.log(`x${f(1)}`, [...[1, 2]].length, 'const stays in strings');"), true);
+		expectResult(helper, future, result -> {
+			JsonObject r = result.getAsJsonObject();
+			helper.assertTrue(r.get("blocks").getAsInt() == 5, "3 stones + 2 glass: " + r);
+			helper.assertTrue(r.getAsJsonArray("logs").get(0).getAsString().equals("x2 2 const stays in strings"), "logs: " + r);
 		});
+	}
+
+	@GameTest(template = EMPTY, timeoutTicks = 1000)
+	public void librariesAndKeepExisting(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		helper.setBlock(new BlockPos(1, 2, 0), Blocks.STONE);
+		JsonObject params = new JsonObject();
+		params.addProperty("source", "pillar(1, 0, 3);");
+		params.add("origin", Json.blockPos(helper.absolutePos(new BlockPos(0, 1, 0))));
+		params.addProperty("dryRun", true);
+		params.addProperty("keepExisting", true);
+		JsonArray libs = new JsonArray();
+		JsonObject lib = new JsonObject();
+		lib.addProperty("name", "lib/pillar.js");
+		lib.addProperty("source", "function pillar(x, z, h) {\n  for (let y = 0; y < h; y++) b.set(x, y, z, 'minecraft:oak_planks');\n}");
+		libs.add(lib);
+		params.add("libraries", libs);
+		expectResult(helper, ScriptApi.runScript(helper.getLevel().getServer(), params), result -> {
+			JsonObject r = result.getAsJsonObject();
+			helper.assertTrue(r.get("blocks").getAsInt() == 2 && r.get("skippedExisting").getAsInt() == 1,
+					"the stone in the way is kept: " + r);
+		});
+	}
+
+	@GameTest(template = EMPTY, timeoutTicks = 1000)
+	public void libraryErrorsNameTheFileAndClassIsExplained(GameTestHelper helper) {
+		McMcpGameTests.allowEverywhere();
+		JsonObject params = new JsonObject();
+		params.addProperty("source", "class A {}");
+		params.add("origin", Json.blockPos(helper.absolutePos(BlockPos.ZERO)));
+		params.addProperty("dryRun", true);
+		JsonArray libs = new JsonArray();
+		JsonObject lib = new JsonObject();
+		lib.addProperty("name", "lib/bad.js");
+		lib.addProperty("source", "var ok = 1;\nundefinedFunction();");
+		libs.add(lib);
+		params.add("libraries", libs);
+		var withLib = ScriptApi.runScript(helper.getLevel().getServer(), params);
+		params.remove("libraries");
+		var withClass = ScriptApi.runScript(helper.getLevel().getServer(), params);
+		helper.succeedWhen(() -> {
+			awaitWallClock(withLib);
+			awaitWallClock(withClass);
+			RpcException a = errorOf(withLib), c = errorOf(withClass);
+			helper.assertTrue(a.getMessage().startsWith("lib/bad.js line 2"), "library file and line: " + a.getMessage());
+			helper.assertTrue(c.getMessage().contains("class syntax is not supported"), c.getMessage());
+		});
+	}
+
+	private static RpcException errorOf(CompletableFuture<JsonElement> future) {
+		try {
+			throw new GameTestAssertException("expected an error, got " + future.join());
+		} catch (java.util.concurrent.CompletionException e) {
+			return RpcDispatcher.toRpcException(e);
+		}
 	}
 
 	@GameTest(template = EMPTY)

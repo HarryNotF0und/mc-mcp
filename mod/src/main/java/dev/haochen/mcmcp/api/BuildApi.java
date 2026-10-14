@@ -82,7 +82,7 @@ public final class BuildApi {
 		for (Placement p : placements) {
 			s.guard().checkRegion(level, new Region(p.pos(), p.pos()));
 		}
-		Guard.checkChunks(level, bounds, Params.bool(params, "loadChunks", false));
+		Guard.checkChunks(level, bounds, Params.loadChunks(params));
 		return submit(s, new PlaceJob("placeBlocks", "place " + placements.size() + " blocks", level,
 				placements.size(), placements.iterator(), s.history()));
 	}
@@ -94,42 +94,58 @@ public final class BuildApi {
 		BlockPattern block = s.guard().pattern(Params.string(params, "block"));
 		String mode = Params.string(params, "mode", "solid");
 		BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
-		Iterator<Placement> source;
-		long total;
-		switch (mode) {
-			case "solid" -> {
-				source = positions(region, false, p -> block.at(p.getX(), p.getY(), p.getZ()));
-				total = region.volume();
-			}
-			case "hollow" -> {
-				source = positions(region, false, p -> region.onShell(p) ? block.at(p.getX(), p.getY(), p.getZ()) : air);
-				total = region.volume();
-			}
-			case "outline" -> {
-				source = positions(region, true, p -> block.at(p.getX(), p.getY(), p.getZ()));
-				total = shellSize(region);
-			}
+		StateFor stateFor = switch (mode) {
+			case "solid", "outline" -> p -> block.at(p.getX(), p.getY(), p.getZ());
+			case "hollow" -> p -> region.onShell(p) ? block.at(p.getX(), p.getY(), p.getZ()) : air;
 			default -> throw Params.invalid("mode must be solid, hollow or outline");
-		}
-		checkWrite(s, level, region, params);
+		};
 		String description = "fill " + mode + " " + describe(region) + " with " + Params.string(params, "block");
-		return submit(s, new PlaceJob("fillRegion", description, level, (int) total, source, s.history()));
+		return submitAreas(s, level, region, params, "fillRegion", description, mode.equals("outline"), stateFor);
 	}
 
 	public static JsonObject clearRegion(MinecraftServer server, JsonObject params) {
 		Services s = McMcpMod.services();
 		ServerLevel level = WorldApi.level(server, params);
 		Region region = Params.region(params, "region");
-		checkWrite(s, level, region, params);
 		BlockState air = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
-		return submit(s, new PlaceJob("clearRegion", "clear " + describe(region), level,
-				(int) region.volume(), positions(region, false, p -> air), s.history()));
+		return submitAreas(s, level, region, params, "clearRegion", "clear " + describe(region), false, p -> air);
 	}
 
-	private static void checkWrite(Services s, ServerLevel level, Region region, JsonObject params) {
-		s.guard().checkVolume(region.volume());
+	/**
+	 * One job, or with {@code split: true} for regions above maxVolumePerOp, one job per part (each its
+	 * own undo step, run in order). The result is the last job, which finishes last, plus all job ids.
+	 */
+	private static JsonObject submitAreas(Services s, ServerLevel level, Region region, JsonObject params, String kind,
+			String description, boolean outline, StateFor stateFor) {
+		long volume = outline ? shellCount(region, region) : region.volume();
+		boolean split = Params.bool(params, "split", false) && volume > s.guard().maxVolume();
+		if (split) {
+			s.guard().checkSplitVolume(volume);
+		} else {
+			s.guard().checkVolume(volume);
+		}
 		s.guard().checkRegion(level, region);
-		Guard.checkChunks(level, region, Params.bool(params, "loadChunks", false));
+		Guard.checkChunks(level, region, Params.loadChunks(params));
+		if (!split) {
+			return submit(s, new PlaceJob(kind, description, level, (int) volume,
+					positions(region, outline ? region : null, stateFor), s.history()));
+		}
+		List<Region> parts = region.split(s.guard().maxVolume());
+		JsonArray ids = new JsonArray();
+		JsonObject last = null;
+		for (int i = 0; i < parts.size(); i++) {
+			Region part = parts.get(i);
+			long count = outline ? shellCount(region, part) : part.volume();
+			if (count == 0) {
+				continue;
+			}
+			last = submit(s, new PlaceJob(kind, description + " (part " + (i + 1) + "/" + parts.size() + ": " + describe(part) + ")",
+					level, (int) count, positions(part, outline ? region : null, stateFor), s.history()));
+			ids.add(last.get("jobId"));
+		}
+		last.add("jobIds", ids);
+		last.addProperty("note", "split into " + ids.size() + " jobs (one undo step each, run in order); this is the last one");
+		return last;
 	}
 
 	static JsonObject submit(Services s, Job job) {
@@ -148,19 +164,23 @@ public final class BuildApi {
 		return r.sizeX() + "x" + r.sizeY() + "x" + r.sizeZ() + " at " + r.min().toShortString();
 	}
 
-	private static long shellSize(Region r) {
-		long inner = (long) Math.max(0, r.sizeX() - 2) * Math.max(0, r.sizeY() - 2) * Math.max(0, r.sizeZ() - 2);
-		return r.volume() - inner;
+	/** Blocks of {@code area} on the outer shell of {@code shell}. */
+	private static long shellCount(Region shell, Region area) {
+		int ix0 = Math.max(area.min().getX(), shell.min().getX() + 1), ix1 = Math.min(area.max().getX(), shell.max().getX() - 1);
+		int iy0 = Math.max(area.min().getY(), shell.min().getY() + 1), iy1 = Math.min(area.max().getY(), shell.max().getY() - 1);
+		int iz0 = Math.max(area.min().getZ(), shell.min().getZ() + 1), iz1 = Math.min(area.max().getZ(), shell.max().getZ() - 1);
+		long inner = (long) Math.max(0, ix1 - ix0 + 1) * Math.max(0, iy1 - iy0 + 1) * Math.max(0, iz1 - iz0 + 1);
+		return area.volume() - inner;
 	}
 
 	private interface StateFor {
 		BlockState at(BlockPos pos);
 	}
 
-	/** Lazily walks the region bottom-up (y, then z, then x), optionally only its shell. */
-	private static Iterator<Placement> positions(Region region, boolean shellOnly, StateFor stateFor) {
+	/** Lazily walks {@code area} bottom-up (y, then z, then x); with a {@code shell}, only positions on its outer shell. */
+	private static Iterator<Placement> positions(Region area, Region shell, StateFor stateFor) {
 		return new Iterator<>() {
-			private int x = region.min().getX(), y = region.min().getY(), z = region.min().getZ();
+			private int x = area.min().getX(), y = area.min().getY(), z = area.min().getZ();
 			private boolean exhausted;
 
 			{
@@ -184,11 +204,11 @@ public final class BuildApi {
 			}
 
 			private void advance() {
-				if (++x > region.max().getX()) {
-					x = region.min().getX();
-					if (++z > region.max().getZ()) {
-						z = region.min().getZ();
-						if (++y > region.max().getY()) {
+				if (++x > area.max().getX()) {
+					x = area.min().getX();
+					if (++z > area.max().getZ()) {
+						z = area.min().getZ();
+						if (++y > area.max().getY()) {
 							exhausted = true;
 						}
 					}
@@ -196,12 +216,17 @@ public final class BuildApi {
 			}
 
 			private void skipInterior() {
-				if (!shellOnly) {
+				if (shell == null) {
 					return;
 				}
-				while (!exhausted && !region.onShell(new BlockPos(x, y, z))) {
-					// Jump straight to the far wall of this row.
-					x = region.max().getX();
+				while (!exhausted && !shell.onShell(new BlockPos(x, y, z))) {
+					// Inside the shell: jump to its far wall in this row, or on to the next row.
+					int far = Math.min(area.max().getX(), shell.max().getX());
+					if (x < far) {
+						x = far;
+					} else {
+						advance();
+					}
 				}
 			}
 		};

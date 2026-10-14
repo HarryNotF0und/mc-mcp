@@ -84,6 +84,12 @@ public final class Params {
 		return new Vec3(v[0], v[1], v[2]);
 	}
 
+	/** The {@code loadChunks} parameter, defaulting to {@code config.loadChunksByDefault}. */
+	public static boolean loadChunks(JsonObject params) {
+		var services = dev.haochen.mcmcp.McMcpMod.services();
+		return bool(params, "loadChunks", services == null || services.config().loadChunksByDefault);
+	}
+
 	public static boolean bool(JsonObject params, String name, boolean fallback) {
 		if (!has(params, name)) {
 			return fallback;

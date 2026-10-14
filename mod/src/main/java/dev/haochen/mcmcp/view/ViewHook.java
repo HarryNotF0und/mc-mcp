@@ -21,4 +21,9 @@ public interface ViewHook {
 	 * {@code daylight} renders as if it were noon (client-side only).
 	 */
 	CompletableFuture<List<byte[]>> capture(List<Shot> shots, int width, int height, int fov, boolean daylight);
+
+	/** How far from the player the client draws terrain, in blocks (-1 if unknown). */
+	default int renderDistanceBlocks() {
+		return -1;
+	}
 }

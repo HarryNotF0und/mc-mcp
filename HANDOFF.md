@@ -1,6 +1,6 @@
 # 交接文档（给接手的 Codex / 其他 Agent）
 
-最后更新：2026-10-13，基于提交 `d0ade3b`，追加登记表生命周期/持久化修复与性能优化（D28）。先读本文件，再读 `CLAUDE.md`（约定与常用命令）和 `PLAN-v2.md`（当前计划，英文）。完整审查和测量结果见 [docs/review-2026-10-13.md](docs/review-2026-10-13.md)。
+最后更新：2026-10-14（Claude），在 `75c15f1` 之上修复一次大型实际建造（城堡）反馈的 17 个问题，见 §8；此前 2026-10-13 基于 `d0ade3b` 追加了登记表生命周期/持久化修复与性能优化（D28）。先读本文件，再读 `CLAUDE.md`（约定与常用命令）和 `PLAN-v2.md`（当前计划，英文）。完整审查和测量结果见 [docs/review-2026-10-13.md](docs/review-2026-10-13.md)。
 
 ## 1. 项目是什么
 
@@ -9,7 +9,7 @@ MC-MCP 让 AI 通过 MCP 在 Minecraft 里看、建、玩。
 - `mod/`：Fabric 模组，Minecraft **1.21.1**、Java 21、Mojang 映射。它在 `127.0.0.1:25580` 上提供 WebSocket + JSON-RPC 服务，用 token 鉴权，token 在游戏目录的 `config/mcmcp.json`。
 - `bridge/`：Rust MCP 服务（`rmcp` 3.5.1，stdio）。每个 MCP tool 转成一次 JSON-RPC 调用。
 - `protocol/spec.md`：协议的唯一权威来源（中文）。修改协议时，`spec.md`、`mod/` 和 `bridge/` 三处要同时改。
-- `docs/USAGE.md`：用户手册，含全部 39 个工具。`docs/building-plan.md`：建筑方案格式。`docs/decisions.md`：设计决策 D1–D28。`docs/manual-test.md`：手动测试清单。
+- `docs/USAGE.md`：用户手册，含全部 43 个工具。`docs/building-plan.md`：建筑方案格式。`docs/decisions.md`：设计决策 D1–D32。`docs/manual-test.md`：手动测试清单。
 
 PLAN.md（v1，阶段 1–5）已全部完成。PLAN-v2.md 的进度：
 
@@ -34,15 +34,15 @@ PLAN-v2 的硬性规则：
 
 ```bash
 cd mod && ./gradlew build            # 构建模组
-cd mod && ./gradlew runGametest      # 46 个 GameTest；结果在 mod/build/gametest/junit.xml
+cd mod && ./gradlew runGametest      # 53 个 GameTest；结果在 mod/build/gametest/junit.xml
 cd mod && ./gradlew runClient        # 带模组启动游戏
 cd mod && ./gradlew genSources       # 反编译源码；不确定 MC API 时查源码，别凭印象
-cd bridge && cargo test              # 22 个单元测试
+cd bridge && cargo test              # 25 个单元测试
 cd bridge && cargo clippy --all-targets   # 保持 0 警告
 cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridge(.exe)
 ```
 
-当前结果：`gradlew build runGametest` 成功，GameTest 46/46 通过，`cargo test` 22/22、`cargo clippy --all-targets -- -D warnings`、`cargo build --release` 均通过。上轮四个回归测试及本轮排队状态/容器恢复测试在旧代码上失败，修复后通过。Windows 沙箱中测试需要 Gradle 缓存和 localhost socket 权限；无权限时 Rust 的 socket 错误不是代码失败。`cargo fmt --check` 的原有格式差异尚未做全库调整。性能测量：1791 方块建筑的 worldCells() 预热后调用 1000 次，58.4216 ms / 292,784,000 字节分配 → 0.0800 ms / 0 字节；这是方法局部测量，不是整体 TPS 测量。
+当前结果（2026-10-14）：`gradlew build runGametest` 成功，GameTest 53/53 通过，`cargo test` 25/25、`cargo clippy --all-targets` 0 警告。release 版 bridge 没有重新编译：`bridge/target/release/mc-mcp-bridge.exe` 正被用户的 MCP 客户端（3 个进程）占用，需关闭这些客户端后再 `cargo build --release`。以下为 2026-10-13 的记录：GameTest 46/46 通过，`cargo test` 22/22、`cargo clippy --all-targets -- -D warnings`、`cargo build --release` 均通过。上轮四个回归测试及本轮排队状态/容器恢复测试在旧代码上失败，修复后通过。Windows 沙箱中测试需要 Gradle 缓存和 localhost socket 权限；无权限时 Rust 的 socket 错误不是代码失败。`cargo fmt --check` 的原有格式差异尚未做全库调整。性能测量：1791 方块建筑的 worldCells() 预热后调用 1000 次，58.4216 ms / 292,784,000 字节分配 → 0.0800 ms / 0 字节；这是方法局部测量，不是整体 TPS 测量。
 
 ### 实机调试（Windows + Git Bash）
 
@@ -81,7 +81,8 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
    - 现状：用 `SET_FLAGS` 放下的红石线、中继器、活塞不会收到邻居更新，可能“放好了但不工作”，也可能状态不一致。
    - 建议：给红石相关的放置加一种“有界更新模式”。放置完成后，对本次改动的位置及其 6 个邻居调用 `level.updateNeighborsAt` / `neighborChanged`，或者对红石方块用 `Block.UPDATE_ALL` 放置。
    - 要求：影响范围限制在改动包围盒外扩 1 格。撤销（`RestoreJob`）时同样处理。
-   - 把取舍写进 `decisions.md`，编号 D29（D27、D28 已用于可靠性修复）。
+   - 把取舍写进 `decisions.md`，编号 D33（D27–D32 已用于可靠性和使用反馈修复）。
+   - 注意 D30：现在默认 `loadChunks` 为 true；红石观察等新 RPC 也应用 `Params.loadChunks(params)`。
 2. **新增 RPC 和工具**：
    - `redstone.inspect`：网络图，包括电源、导线功率、中继器延迟和朝向、比较器、活塞的伸缩状态、侦测器、门。
    - `redstone.trigger`：按钮、拉杆、压力板，或者放置/移除红石块。
@@ -130,3 +131,44 @@ cd bridge && cargo build --release   # 生成 bridge/target/release/mc-mcp-bridg
   - GameTest：新增 `RevisionGameTests`。
 - bridge：`tools/arch.rs`（`inspect_building`、`revise_building`、`get_building`），`resources.rs`（工作流提示词）。
 - 文档：`spec.md`、`USAGE.md`、`building-plan.md`、`decisions.md`（D25、D26）。
+
+## 8. 2026-10-14：大型建造反馈修复（Claude）
+
+来源：另一个 agent 用这些工具建了一座城堡后的 17 条反馈（玩家在 x≈-350，在允许区域外；100×200 平地难找；楼梯撞头；截图全雾等）。
+处理结果：除第 9 条（自动家具偏少，有意保持简单）外都已修。**还没做实机验收**：游戏客户端没有启动，release bridge 也没重编（原因见 §2）。
+
+| # | 问题 | 处理 |
+|---|---|---|
+| 8 | 校验通过但楼梯撞头（最严重） | 根因：玩家上一级时身体还在下一级上方就已抬升，需要三格净空。编译器原来只开 2 格楼板洞；校验对台阶豁免了"第三格"检查（阶段 1 为消除误报加的）。现在 `PlanCompiler.headroom()` 统一计算需要的格子并开洞（满层高为 3 格）；寻路上/下一级都要求较低一列有第三格；新增错误 `STAIRS_HEADROOM`。D29。测试：`ArchGameTests` 的缺陷用例和建成后楼梯井 3 格为空气 |
+| 1 | 1001 只给坐标 | `Guard.nearestAllowed`：消息和 `data.nearestAllowed` 给出同尺寸盒子最近能放的位置。测试 `outsideAllowedRegionSuggestsTheNearestSpot` |
+| 2 | 找大块平地费力 | 新 RPC `site.findFlat` / 工具 `find_flat_area`（`arch/FlatFinder.java`）。半径 ≤256、尺寸 ≤256，网格采样，结果只取允许区域内的候选，默认只搜已加载区块。测试 `flatAreasAreFound`（测试世界那里是虚空，测试先自己铺地） |
+| 3 | 单次 262144 上限 | `fill_region`/`clear_region` 加 `split:true`，按层/行拆成依次执行的任务，总量受 `maxSplitVolume` 限制（默认 4×）。outline 模式拆分后仍只放外壳（`shellCount`、`positions(area, shell, …)`）。测试 `largeFillsCanBeSplit` |
+| 4 | 处处要 loadChunks | 配置 `loadChunksByDefault`（默认 true），`Params.loadChunks(params)`；`find_flat_area` 例外。D30 |
+| 5 | 方案只能内联，返回太长 | bridge：`buildingFile`（validate/preview/place_blueprint/revise），`validate_building` 默认省略组件列表，只给 `componentCount`（`details:true` 恢复） |
+| 6 | 参数名 | `run_script`/`preview` 接受 `file` 作为 `sourceFile` 的别名；`orbit_shots` 可传 `building` 代替 `region` |
+| 7 | 门尺寸限制没写 | 错误消息和 building-plan.md 说明大门用 `arch` |
+| 10 | 碰撞后要重发整个 JSON | 用 `buildingFile` 改文件后再调用 |
+| 11 | 塔被屋顶遮住 | 新警告 `TOWER_HIDDEN`（塔高出周围屋顶不足 4 格时，写明需要的高度）。测试 `towerHiddenByTheRoofIsWarned` |
+| 12 | Rhino 限制 | 实测 Rhino 1.9.1：展开、剩余参数、箭头函数、模板字符串可用；循环内 const 保留首值、`for (const …of)` 无法解析，而 let 都正确。所以执行前把 `const` 关键字换成 `let  `（等长，`ScriptSandbox.constToLet`，会跳过字符串/模板/注释），取代 D11 的拒绝策略（D31）。`class` 给出明确错误 |
+| 13 | 没有只在空气处放置 | `keepExisting` 参数 + `b.keepExisting(bool)`，结果含 `skippedExisting` |
+| 14 | 不支持 include | 参数 `libraries:[{name,source}]`，bridge 的 `includeFiles` 读文件；库中错误带文件名 |
+| 15 | 远处截图全是雾 | 客户端只有玩家附近的区块，相机远移也画不出来；screenshot/orbit_shots/inspect 在目标超出渲染距离时返回 `warning`（`ViewApi.farWarning`，`ViewHook.renderDistanceBlocks`） |
+| 16 | 雾和残影 | 截图期间关闭地形雾：客户端 mixin `client/mixin/FogRendererMixin`（`mcmcp.client.mixins.json`，fabric.mod.json 已登记），D32。残影原因未复现；新增 `view.refresh` / `refresh_view` 把真实方块重发给客户端 |
+| 17 | 朝向靠猜 | 新 RPC `world.blockInfo` / 工具 `block_info`（`world/BlockInfo.java`）：属性取值和朝向说明（门、活板门的说明按 1.21.1 源码中的形状和放置代码核对过）。测试 `blockInfoExplainsFacing` |
+
+新增和修改的文件：
+- mod：
+  - 新增 `arch/FlatFinder.java`、`world/BlockInfo.java`；客户端 `client/ScreenshotAccess.java`、`client/mixin/FogRendererMixin.java`、`client/resources/mcmcp.client.mixins.json`。
+  - 修改 `PlanCompiler`、`PlanValidator`、`BuildingPlan`、`Guard`、`Region`、`McMcpConfig`、`Params`、`BuildApi`、`ScriptApi`、`ViewApi`、`WorldApi`、`ArchApi`、`PreviewManager`、`ScriptSandbox`、`BuilderObject`、`ViewHook`、`ScreenshotRenderer`。
+  - 新测试类 `UsabilityGameTests`（已在 gametest 的 fabric.mod.json 登记）；`ScriptBlueprintGameTests` 的 const 拒绝用例换成新语法、库和 keepExisting 的用例。
+- bridge：`tools/mod.rs`（`read_file`、`load_building`、`load_includes`、`brief`），`arch.rs`（`find_flat_area`、`buildingFile`），`scripts.rs`、`view.rs`（`refresh_view`）、`world.rs`（`block_info`）、`build.rs`（`split`），`resources.rs`（提示词）。
+- 文档：`spec.md`（"使用反馈修复"一节）、`USAGE.md`、`building-plan.md`、`script-api.md`、`decisions.md`（D29–D32，D11 标为已取代）、`manual-test.md`（新的实机检查清单）、`docs/AGENTS.md`（给使用 MCP 的 agent 的操作说明，已补充以上能力）。
+
+已知限制和待办：
+- **实机验收未做**：需要按 `docs/manual-test.md` 最后一节检查 `runClient` 能启动（新 mixin）、截图无雾、距离警告、`refresh_view`、楼梯实走。
+  - 已确认的部分：`./gradlew build` 通过；jar 里 mixin 的目标已被 Loom 重映射为 `method_3211`，生产环境不需要 refmap。
+- 残影的根因没有找到（可能就是雾，也可能是客户端区块没刷新），`refresh_view` 只是补救手段。
+- 已有建筑若是旧版本编译的（楼梯井只开 2 格），需要 revise 或重新放置才能得到 3 格净空。
+- `find_flat_area` 是采样近似：步长约为短边的 1/12（≤8），并保证总采样不超过约 129×129；单块岩石或小坑可能漏掉。去掉了最高/最低各 2% 的采样再判断平整度。
+- 分拆的填充是多个任务：中途失败时前面的部分已完成，需要按 `jobIds` 逐个撤销。
+- 第 9 条（自动家具偏少）未处理。
